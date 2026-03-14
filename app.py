@@ -35,6 +35,44 @@ app.secret_key = os.urandom(32)
 # In-memory storage keyed by session_id
 sessions = {}
 
+
+def _get_session(session_id):
+    """Return the in-memory session, restoring from disk if needed."""
+    if session_id in sessions:
+        return sessions[session_id]
+    # Try to restore from saved session on disk
+    save_data = session_store.load_session(session_id)
+    if not save_data:
+        return None
+    # Apply teacher score edits (same logic as api_session_load)
+    results = []
+    for r in save_data.get('results', []):
+        mr = dict(r)
+        if 'edited_score' in r:
+            mr['score'] = r['edited_score']
+        results.append(mr)
+    sessions[session_id] = {
+        'status':           'complete',
+        'essays':           save_data.get('essays', []),
+        'rubric':           '',
+        'strictness':       save_data.get('strictness', DEFAULT_STRICTNESS),
+        'strictness_label': save_data.get('strictness_label', ''),
+        'strictness_emoji': save_data.get('strictness_emoji', ''),
+        'model':            save_data.get('model', ''),
+        'model_label':      save_data.get('model_label', ''),
+        'results':          results,
+        'progress':         queue.Queue(),
+        'total':            save_data.get('total', len(results)),
+        'current':          len(results),
+        'canvas_enabled':   save_data.get('canvas_enabled', False),
+        'canvas_url':       save_data.get('canvas_url', ''),
+        'canvas_token':     '',
+        'canvas_course_id':     None,
+        'canvas_assignment_id': None,
+        'canvas_points_possible': None,
+    }
+    return sessions[session_id]
+
 # Canvas pre-fetched submission data (keyed by temp UUID, expires after 1 hour)
 canvas_prefetch = {}
 
@@ -547,10 +585,9 @@ def canvas_push_grade():
     idx = data.get('idx')
     feedback = (data.get('feedback') or '').strip()
 
-    if session_id not in sessions:
+    sess = _get_session(session_id)
+    if not sess:
         return jsonify({'error': 'Session not found.'}), 404
-
-    sess = sessions[session_id]
     if not sess.get('canvas_enabled'):
         return jsonify({'error': 'This session was not graded from Canvas.'}), 400
 
@@ -614,10 +651,9 @@ def api_session_save():
     # Per-level feedback: { "1": { "0": "text" }, "2": { "0": "text" }, "3": { "0": "text" } }
     edited_feedbacks = data.get('edited_feedbacks', {})
 
-    if session_id not in sessions:
+    sess = _get_session(session_id)
+    if not sess:
         return jsonify({'error': 'Session not found.'}), 404
-
-    sess = sessions[session_id]
 
     # Merge teacher edits into results snapshot
     merged = []
@@ -815,9 +851,9 @@ def results():
 @app.route('/api/results')
 def api_results():
     session_id = request.args.get('session_id') or session.get('session_id')
-    if not session_id or session_id not in sessions:
+    sess = _get_session(session_id) if session_id else None
+    if not sess:
         return jsonify({'error': 'No grading session found.'}), 404
-    sess = sessions[session_id]
     return jsonify({
         'status': sess['status'],
         'total': sess['total'],
@@ -837,9 +873,9 @@ def api_results():
 @app.route('/api/results/<int:idx>')
 def api_result_single(idx):
     session_id = request.args.get('session_id') or session.get('session_id')
-    if not session_id or session_id not in sessions:
+    sess = _get_session(session_id) if session_id else None
+    if not sess:
         return jsonify({'error': 'No grading session found.'}), 404
-    sess = sessions[session_id]
     if idx < 0 or idx >= len(sess['results']):
         return jsonify({'error': 'Invalid index.'}), 404
     return jsonify(sess['results'][idx])
@@ -848,9 +884,10 @@ def api_result_single(idx):
 @app.route('/api/essay-text/<int:idx>')
 def api_essay_text(idx):
     session_id = request.args.get('session_id') or session.get('session_id')
-    if not session_id or session_id not in sessions:
+    sess = _get_session(session_id) if session_id else None
+    if not sess:
         return jsonify({'error': 'No grading session found.'}), 404
-    sess = sessions[session_id]
+
     essays = sess.get('essays', [])
     if not essays:
         return jsonify({'error': 'Essay text is not available. This session was saved before essay storage was added — re-grade to enable Show Essay.'}), 404

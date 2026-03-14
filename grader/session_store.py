@@ -36,6 +36,9 @@ def _ensure_dir() -> None:
     os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 
+MAX_SAVED_SESSIONS = 5
+
+
 def save_session(session_id: str, data: dict) -> None:
     if not _safe(session_id):
         raise ValueError("Invalid session ID")
@@ -43,6 +46,37 @@ def save_session(session_id: str, data: dict) -> None:
     path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, default=str)
+    # Prune oldest sessions beyond the cap (keep the most recent)
+    _prune_old_sessions(session_id)
+
+
+def _prune_old_sessions(keep_id: str) -> None:
+    """Delete the oldest saved sessions if we exceed MAX_SAVED_SESSIONS."""
+    try:
+        files = [f for f in os.listdir(SESSIONS_DIR) if f.endswith('.json')]
+    except OSError:
+        return
+    if len(files) <= MAX_SAVED_SESSIONS:
+        return
+    # Sort by modification time, oldest first
+    files_with_mtime = []
+    for f in files:
+        p = os.path.join(SESSIONS_DIR, f)
+        try:
+            files_with_mtime.append((os.path.getmtime(p), f))
+        except OSError:
+            continue
+    files_with_mtime.sort()
+    # Delete oldest until we're at the cap
+    to_delete = len(files_with_mtime) - MAX_SAVED_SESSIONS
+    for _, f in files_with_mtime[:to_delete]:
+        sid = f[:-5]  # strip .json
+        if sid == keep_id:
+            continue  # never delete the one we just saved
+        try:
+            os.remove(os.path.join(SESSIONS_DIR, f))
+        except OSError:
+            pass
 
 
 def load_session(session_id: str) -> dict | None:
