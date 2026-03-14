@@ -1360,6 +1360,149 @@ input[type="file"] {
     color: var(--red);
 }
 
+/* ── Push All to Canvas (results page) ────────────────────────────────── */
+.btn-push-all {
+    background: linear-gradient(135deg, #b71c1c, #d32f2f);
+    color: #fff;
+    border: none;
+    padding: 0.85rem 2rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 3px 12px rgba(183, 28, 28, 0.35);
+    letter-spacing: 0.3px;
+}
+
+.btn-push-all:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(183, 28, 28, 0.5);
+}
+
+.btn-push-all:disabled {
+    background: var(--gray-300);
+    color: var(--gray-600);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-push-all-confirm {
+    background: linear-gradient(135deg, #b71c1c, #d32f2f);
+    color: #fff;
+    border: none;
+    padding: 0.7rem 1.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 2px 8px rgba(183, 28, 28, 0.3);
+}
+
+.btn-push-all-confirm:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(183, 28, 28, 0.45);
+}
+
+.push-all-progress-text {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--blue);
+    padding: 0.5rem;
+}
+
+.push-all-progress-text.done {
+    color: var(--green-dark);
+    font-size: 1rem;
+}
+
+/* ── Re-Grade section (results page) ─────────────────────────────────── */
+.regrade-section {
+    margin: 1.25rem 0 0.5rem;
+    padding: 1rem 1.25rem;
+    background: linear-gradient(135deg, #f8f9fa, #eef2f7);
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+}
+
+.regrade-label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--blue);
+    margin-bottom: 0.6rem;
+}
+
+.regrade-controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.regrade-select {
+    flex: 1;
+    min-width: 200px;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--gray-300);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: var(--white);
+}
+
+.regrade-select:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(0, 39, 76, 0.1);
+}
+
+.btn-regrade {
+    background: linear-gradient(135deg, #e65100, #ff6d00);
+    color: var(--white);
+    border: none;
+    padding: 0.6rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 2px 8px rgba(230, 81, 0, 0.3);
+    white-space: nowrap;
+}
+
+.btn-regrade:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(230, 81, 0, 0.45);
+}
+
+.btn-regrade:disabled {
+    background: var(--gray-300);
+    color: var(--gray-600);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.regrade-hint {
+    margin-top: 0.4rem;
+}
+
+/* ── Add Essays section (results page) ───────────────────────────────── */
+.add-essays-section {
+    text-align: center;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--gray-200);
+}
+
 /* ── Auto-save badge (results page) ──────────────────────────────────────── */
 .autosave-badge {
     position: fixed;

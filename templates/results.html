@@ -44,6 +44,22 @@
             <p class="help-text" style="margin: 0.2rem 0 0.5rem;">AI graded at full detail &mdash; choose how much to send students. No re-grading needed.</p>
             <textarea class="feedback-edit" id="feedbackArea"></textarea>
         </div>
+        <!-- Re-Grade Controls -->
+        <div class="regrade-section">
+            <label class="regrade-label">&#128260; Re-Grade This Essay</label>
+            <div class="regrade-controls">
+                <select id="regradeStrictness" class="regrade-select">
+                    <option value="2">&#127775; Effort Counts! (2)</option>
+                    <option value="4">&#128218; Standard Classroom (4)</option>
+                    <option value="6">&#128394;&#65039; Red Pen Activated (6)</option>
+                    <option value="8">&#128269; Grammar Detective (8)</option>
+                    <option value="10">&#128128; College Prof Who Hates You (10)</option>
+                </select>
+                <button class="btn btn-regrade" id="regradeBtn" onclick="regradeEssay()">&#128260; Re-Grade</button>
+            </div>
+            <p class="help-text regrade-hint">Pick a new strictness and re-grade just this student. Uses 1 API call.</p>
+        </div>
+
         <div style="text-align:center; margin: 1rem 0 0.5rem;">
             <button class="btn btn-show-essay" onclick="showEssay()">&#128196; Show Essay</button>
         </div>
@@ -60,11 +76,63 @@
         <p class="error-msg" id="errorMsg"></p>
     </div>
 
+    <!-- Push All to Canvas (only visible for Canvas sessions) -->
+    <div id="pushAllWrap" style="display:none; text-align:center; margin-top:1rem;">
+        <button class="btn btn-push-all" id="pushAllBtn" onclick="confirmPushAll()">&#9762;&#65039; Push ALL to Canvas</button>
+        <div id="pushAllProgress" style="display:none; margin-top:0.75rem;"></div>
+    </div>
+
+    <!-- Add Essays to Session -->
+    <div class="add-essays-section">
+        <button class="btn btn-secondary btn-sm" id="addEssaysToggle" onclick="toggleAddEssays()">&#10133; Add Essays to This Batch</button>
+        <div id="addEssaysPanel" style="display:none; margin-top:0.75rem;">
+            <div class="drop-zone" id="addDropZone" style="padding:1.5rem 1rem;">
+                <div style="font-size:1.5rem;">&#128194;</div>
+                <div style="font-weight:600; font-size:0.9rem;">Drag &amp; drop additional essays here</div>
+                <div style="font-size:0.8rem; color:#6c757d;">or <span style="color:#00274C; text-decoration:underline; cursor:pointer;" onclick="document.getElementById('addEssayFiles').click()">click to browse</span></div>
+                <div style="font-size:0.7rem; color:#6c757d; margin-top:0.2rem;">.docx &middot; .pdf &middot; .txt</div>
+                <input type="file" id="addEssayFiles" multiple accept=".docx,.pdf,.txt" style="display:none;" onchange="handleAddFiles(this.files)">
+            </div>
+            <div id="addEssayFileList" style="display:none; margin-top:0.5rem;"></div>
+            <div style="margin-top:0.5rem; text-align:center;">
+                <button class="btn btn-primary btn-sm" id="addEssaysBtn" onclick="submitAddEssays()" style="display:none;">
+                    &#128218; Grade &amp; Add to Batch
+                </button>
+            </div>
+            <div id="addEssaysError" class="alert alert-error" style="display:none; margin-top:0.5rem;"></div>
+        </div>
+    </div>
+
     <!-- Export -->
     <div class="export-row">
+        <a class="btn btn-primary btn-sm" id="reportLink" href="#" onclick="openReport()">&#128203; View Report</a>
         <button class="btn btn-secondary btn-sm" onclick="exportCSV()">Export All as CSV</button>
         <button class="btn btn-secondary btn-sm" onclick="exportJSON()">Export All as JSON</button>
         <a href="/" class="btn btn-secondary btn-sm">Grade Another Batch</a>
+    </div>
+</div>
+
+<!-- Push All Confirmation Modal -->
+<div class="modal-backdrop" id="pushAllModal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal-box" style="max-width: 500px;">
+        <div class="modal-header" style="background: #b71c1c;">
+            <h2>&#9762;&#65039; Full Send Warning</h2>
+            <button class="modal-close" onclick="document.getElementById('pushAllModal').classList.remove('open')">&times;</button>
+        </div>
+        <div class="modal-body" style="text-align:center; padding: 2rem 1.5rem;">
+            <div style="font-size: 3rem; margin-bottom: 0.75rem;">&#9762;&#65039;</div>
+            <h3 style="color: #b71c1c; margin-bottom: 0.75rem;">Are you absolutely sure?</h3>
+            <p style="font-size: 0.95rem; color: var(--gray-800); margin-bottom: 0.5rem;">
+                This will push <strong>EVERY</strong> score and comment in this batch directly to Canvas.
+            </p>
+            <p style="font-size: 0.85rem; color: var(--gray-600); margin-bottom: 1.5rem;">
+                <span id="pushAllCount"></span> students will receive their grades and feedback immediately. This cannot be undone from this app.
+            </p>
+            <div style="display:flex; gap:0.75rem; justify-content:center;">
+                <button class="btn btn-secondary" onclick="document.getElementById('pushAllModal').classList.remove('open')">Cancel</button>
+                <button class="btn btn-push-all-confirm" onclick="executePushAll()">&#9762;&#65039; Full Send</button>
+            </div>
+        </div>
     </div>
 </div>
 

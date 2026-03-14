@@ -881,6 +881,241 @@ def api_result_single(idx):
     return jsonify(sess['results'][idx])
 
 
+@app.route('/report')
+def report():
+    session_id = request.args.get('session_id')
+    sess = _get_session(session_id) if session_id else None
+    if not sess:
+        return redirect('/')
+
+    results_list = sess.get('results', [])
+
+    # Compute stats
+    graded = [r for r in results_list if not r.get('error')]
+    errors = [r for r in results_list if r.get('error')]
+    scores = [r['score'] for r in graded if r.get('score') is not None]
+
+    avg_score = f"{sum(scores) / len(scores):.1f}" if scores else 'N/A'
+    high_score = f"{max(scores)}" if scores else 'N/A'
+    low_score = f"{min(scores)}" if scores else 'N/A'
+
+    # Grade distribution (A=90+, B=80-89, C=70-79, D=60-69, F=<60)
+    dist = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0}
+    for r in graded:
+        if r.get('score') is not None and r.get('max_score'):
+            pct = (r['score'] / r['max_score']) * 100
+            if pct >= 90: dist['A'] += 1
+            elif pct >= 80: dist['B'] += 1
+            elif pct >= 70: dist['C'] += 1
+            elif pct >= 60: dist['D'] += 1
+            else: dist['F'] += 1
+
+    total_for_dist = max(len(graded), 1)
+    distribution = [
+        {'letter': letter, 'count': count, 'pct': round(count / total_for_dist * 100)}
+        for letter, count in dist.items()
+    ]
+
+    # Attention items
+    attention_items = [{'filename': r['filename'], 'reason': r['error']} for r in errors]
+
+    # All results for the table
+    all_results = []
+    for r in results_list:
+        row = dict(r)
+        if not r.get('error') and r.get('score') is not None and r.get('max_score'):
+            row['pct'] = f"{(r['score'] / r['max_score']) * 100:.1f}"
+            summary = r.get('summary', '') or ''
+            row['summary_short'] = summary[:200] + ('...' if len(summary) > 200 else '')
+        all_results.append(row)
+
+    return render_template('report.html',
+        session_id=session_id,
+        strictness=sess.get('strictness', DEFAULT_STRICTNESS),
+        strictness_label=sess.get('strictness_label', ''),
+        strictness_emoji=sess.get('strictness_emoji', ''),
+        model_label=sess.get('model_label', ''),
+        canvas_enabled=sess.get('canvas_enabled', False),
+        date=datetime.now().strftime('%B %d, %Y %I:%M %p'),
+        total_graded=len(graded),
+        total_errors=len(errors),
+        avg_score=avg_score,
+        high_score=high_score,
+        low_score=low_score,
+        distribution=distribution,
+        attention_items=attention_items,
+        all_results=all_results,
+        results_json=json.dumps(results_list),
+    )
+
+
+@app.route('/api/regrade', methods=['POST'])
+def api_regrade():
+    """Re-grade a single student essay at a different strictness level."""
+    data = request.get_json()
+    session_id = (data.get('session_id') or '').strip()
+    idx = data.get('idx')
+    new_strictness = data.get('strictness')
+
+    sess = _get_session(session_id)
+    if not sess:
+        return jsonify({'error': 'Session not found.'}), 404
+
+    if idx is None or idx < 0 or idx >= len(sess.get('essays', [])):
+        return jsonify({'error': 'Invalid essay index.'}), 400
+
+    try:
+        new_strictness = int(new_strictness)
+        new_strictness = max(2, min(10, new_strictness))
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid strictness value.'}), 400
+
+    essay = sess['essays'][idx]
+    if not essay.get('text'):
+        return jsonify({'error': 'No essay text available to re-grade.'}), 400
+
+    # We need provider + API key + model to re-grade.
+    # Pull the model from session; provider/key must be sent from the frontend
+    # (they were stored in localStorage, not on the server for security).
+    provider = (data.get('provider') or '').strip()
+    api_key = (data.get('api_key') or '').strip()
+    model = data.get('model') or sess.get('model', '')
+
+    if not provider or not api_key:
+        return jsonify({'error': 'Provider and API key are required for re-grading.'}), 400
+
+    rubric = sess.get('rubric', '')
+    if not rubric:
+        return jsonify({'error': 'Original rubric not found in session. Please re-grade from a fresh batch.'}), 400
+
+    try:
+        grader = GraderAI(provider, api_key, model=model)
+        graded = grader.grade_essay(rubric, essay['text'], essay['filename'], new_strictness)
+        result = {
+            'filename': essay['filename'],
+            'score': graded['score'],
+            'max_score': graded['max_score'],
+            'summary': graded['summary'],
+            'categories': graded.get('categories', []),
+            'error': None,
+        }
+        # Carry over Canvas user ID if present
+        if essay.get('canvas_user_id'):
+            result['canvas_user_id'] = essay['canvas_user_id']
+
+        # Update the in-memory result
+        sess['results'][idx] = result
+
+        strictness_info = get_strictness_info(new_strictness)
+
+        return jsonify({
+            'success': True,
+            'result': result,
+            'strictness': new_strictness,
+            'strictness_label': strictness_info['label'],
+            'strictness_emoji': strictness_info['emoji'],
+        })
+
+    except GradingError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        err = str(e).lower()
+        if 'authentication' in err or 'unauthorized' in err or '401' in str(e):
+            return jsonify({'error': 'Invalid API key. Please check your key.'}), 401
+        return jsonify({'error': f'Re-grading failed: {e}'}), 500
+
+
+@app.route('/api/session/add-essays', methods=['POST'])
+def api_add_essays():
+    """Add and grade additional essay files into an existing session."""
+    session_id = request.form.get('session_id', '').strip()
+    provider = request.form.get('provider', '').strip()
+    api_key = request.form.get('api_key', '').strip()
+
+    sess = _get_session(session_id)
+    if not sess:
+        return jsonify({'error': 'Session not found.'}), 404
+
+    if not provider or not api_key:
+        return jsonify({'error': 'Provider and API key required.'}), 400
+
+    rubric = sess.get('rubric', '')
+    if not rubric:
+        return jsonify({'error': 'Original rubric not found in session.'}), 400
+
+    strictness = sess.get('strictness', DEFAULT_STRICTNESS)
+    model = sess.get('model', '')
+
+    # Extract uploaded files
+    uploaded_files = request.files.getlist('essay_files')
+    if not uploaded_files or all(not f.filename for f in uploaded_files):
+        return jsonify({'error': 'Please select at least one essay file.'}), 400
+
+    new_essays = []
+    for f in sorted(uploaded_files, key=lambda x: x.filename or ''):
+        if not f.filename:
+            continue
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in SUPPORTED_ESSAY_EXTENSIONS:
+            continue
+        try:
+            file_bytes = f.read()
+            text = extract_text(f.filename, file_bytes)
+            new_essays.append({'filename': os.path.basename(f.filename), 'text': text})
+        except ExtractionError as e:
+            new_essays.append({
+                'filename': os.path.basename(f.filename),
+                'text': None, 'error': str(e),
+            })
+
+    if not new_essays:
+        return jsonify({'error': 'No valid essay files found. Use .docx, .pdf, or .txt.'}), 400
+
+    # Grade each new essay
+    try:
+        grader = GraderAI(provider, api_key, model=model)
+    except GradingError as e:
+        return jsonify({'error': str(e)}), 400
+
+    new_results = []
+    for essay in new_essays:
+        if essay.get('error'):
+            result = {
+                'filename': essay['filename'],
+                'score': None, 'max_score': None,
+                'summary': None, 'error': essay['error'],
+            }
+        else:
+            try:
+                graded = grader.grade_essay(rubric, essay['text'], essay['filename'], strictness)
+                result = {
+                    'filename': essay['filename'],
+                    'score': graded['score'],
+                    'max_score': graded['max_score'],
+                    'summary': graded['summary'],
+                    'categories': graded.get('categories', []),
+                    'error': None,
+                }
+            except (GradingError, Exception) as e:
+                result = {
+                    'filename': essay['filename'],
+                    'score': None, 'max_score': None,
+                    'summary': None, 'error': str(e),
+                }
+        new_results.append(result)
+
+    # Append to the existing session
+    sess['essays'].extend(new_essays)
+    sess['results'].extend(new_results)
+    sess['total'] = len(sess['results'])
+
+    return jsonify({
+        'success': True,
+        'added': len(new_results),
+        'new_total': sess['total'],
+    })
+
+
 @app.route('/api/essay-text/<int:idx>')
 def api_essay_text(idx):
     session_id = request.args.get('session_id') or session.get('session_id')

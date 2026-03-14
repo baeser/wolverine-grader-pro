@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grading Report &mdash; Wolverine Grader Pro</title>
+    <style>
+        @media print {
+            .no-print { display: none !important; }
+            body { font-size: 11pt; }
+            .report-card { break-inside: avoid; }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: #f8f9fa;
+            color: #343a40;
+            padding: 2rem;
+        }
+        .report-header {
+            background: #00274C;
+            color: #FFCB05;
+            padding: 1.5rem 2rem;
+            border-radius: 10px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        .report-header h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+        .report-header .meta { color: #dee2e6; font-size: 0.85rem; }
+        .report-header .meta span { margin: 0 0.5rem; }
+
+        .toolbar {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .toolbar button, .toolbar a {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.6rem 1.25rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+        .btn-print { background: #00274C; color: #FFCB05; }
+        .btn-print:hover { background: #003366; }
+        .btn-csv { background: #28a745; color: #fff; }
+        .btn-csv:hover { background: #1e7e34; }
+        .btn-back { background: #dee2e6; color: #343a40; }
+        .btn-back:hover { background: #ced4da; }
+
+        /* Summary cards */
+        .summary-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .summary-card {
+            flex: 1;
+            min-width: 140px;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .summary-card .num { font-size: 1.8rem; font-weight: 700; color: #00274C; }
+        .summary-card .label { font-size: 0.8rem; color: #6c757d; margin-top: 0.2rem; }
+
+        /* Attention section */
+        .attention-card {
+            background: #fff5f5;
+            border: 2px solid #dc3545;
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        .attention-card h2 { color: #dc3545; font-size: 1.1rem; margin-bottom: 0.75rem; }
+        .attention-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #f5c6cb;
+            font-size: 0.9rem;
+        }
+        .attention-item:last-child { border-bottom: none; }
+        .attention-icon { font-size: 1rem; }
+        .attention-name { font-weight: 600; }
+        .attention-reason { color: #6c757d; font-style: italic; }
+
+        /* Student grades table */
+        .grades-card {
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+        .grades-card h2 {
+            background: #00274C;
+            color: #FFCB05;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            padding: 0.6rem 0.75rem;
+            text-align: left;
+            font-size: 0.82rem;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td {
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid #f1f3f5;
+            font-size: 0.9rem;
+            vertical-align: top;
+        }
+        tr:hover { background: #f8f9fa; }
+        .score-cell { font-weight: 700; color: #00274C; white-space: nowrap; }
+        .pct-cell { color: #6c757d; font-size: 0.82rem; }
+        .feedback-cell {
+            font-size: 0.82rem;
+            color: #495057;
+            max-width: 400px;
+            line-height: 1.4;
+        }
+        .error-row { background: #fff5f5; }
+        .error-row td { color: #dc3545; }
+
+        /* Grade distribution */
+        .dist-bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0.3rem 0;
+        }
+        .dist-label { width: 2rem; font-weight: 600; font-size: 0.85rem; color: #00274C; }
+        .dist-bar-bg {
+            flex: 1;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .dist-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+        .dist-count { width: 2.5rem; text-align: right; font-size: 0.82rem; color: #6c757d; }
+        .dist-A .dist-bar-fill { background: #28a745; }
+        .dist-B .dist-bar-fill { background: #17a2b8; }
+        .dist-C .dist-bar-fill { background: #ffc107; }
+        .dist-D .dist-bar-fill { background: #fd7e14; }
+        .dist-F .dist-bar-fill { background: #dc3545; }
+
+        .footer-note {
+            text-align: center;
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="report-header">
+        <h1>&#128203; Grading Report</h1>
+        <div class="meta">
+            <span>{{ strictness_emoji }} {{ strictness_label }} (Level {{ strictness }}/10)</span>
+            <span>&bull;</span>
+            <span>{{ model_label }}</span>
+            {% if canvas_enabled %}<span>&bull;</span><span>&#127891; Canvas</span>{% endif %}
+            <span>&bull;</span>
+            <span>{{ date }}</span>
+        </div>
+    </div>
+
+    <div class="toolbar no-print">
+        <button class="btn-print" onclick="window.print()">&#128424; Print / Save as PDF</button>
+        <button class="btn-csv" onclick="downloadCSV()">&#128195; Download CSV</button>
+        <a class="btn-back" href="/results?session_id={{ session_id }}">&#8592; Back to Results</a>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="summary-row">
+        <div class="summary-card">
+            <div class="num">{{ total_graded }}</div>
+            <div class="label">Graded</div>
+        </div>
+        <div class="summary-card">
+            <div class="num">{{ total_errors }}</div>
+            <div class="label">&#9888;&#65039; Needs Attention</div>
+        </div>
+        <div class="summary-card">
+            <div class="num">{{ avg_score }}</div>
+            <div class="label">Average Score</div>
+        </div>
+        <div class="summary-card">
+            <div class="num">{{ high_score }}</div>
+            <div class="label">Highest</div>
+        </div>
+        <div class="summary-card">
+            <div class="num">{{ low_score }}</div>
+            <div class="label">Lowest</div>
+        </div>
+    </div>
+
+    <!-- Grade Distribution -->
+    <div class="grades-card">
+        <h2>&#128202; Grade Distribution</h2>
+        <div style="padding: 1rem;">
+            {% for grade in distribution %}
+            <div class="dist-bar-wrap dist-{{ grade.letter }}">
+                <span class="dist-label">{{ grade.letter }}</span>
+                <div class="dist-bar-bg">
+                    <div class="dist-bar-fill" style="width: {{ grade.pct }}%;"></div>
+                </div>
+                <span class="dist-count">{{ grade.count }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if attention_items %}
+    <!-- Attention Required -->
+    <div class="attention-card">
+        <h2>&#9888;&#65039; Attention Required</h2>
+        <p style="font-size: 0.85rem; color: #6c757d; margin-bottom: 0.75rem;">
+            These students need manual review. Their essays could not be graded automatically.
+        </p>
+        {% for item in attention_items %}
+        <div class="attention-item">
+            <span class="attention-icon">&#10060;</span>
+            <span class="attention-name">{{ item.filename }}</span>
+            <span class="attention-reason">&mdash; {{ item.reason }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- All Grades -->
+    <div class="grades-card">
+        <h2>&#128221; All Student Grades ({{ total_graded + total_errors }} total)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Student / File</th>
+                    <th>Score</th>
+                    <th>%</th>
+                    <th>Feedback Summary</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in all_results %}
+                <tr class="{{ 'error-row' if r.error else '' }}">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ r.filename }}</td>
+                    {% if r.error %}
+                    <td colspan="3" style="font-style:italic;">&#9888;&#65039; {{ r.error }}</td>
+                    {% else %}
+                    <td class="score-cell">{{ r.score }} / {{ r.max_score }}</td>
+                    <td class="pct-cell">{{ r.pct }}%</td>
+                    <td class="feedback-cell">{{ r.summary_short }}</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer-note">
+        Wolverine Grader Pro 3.0 &mdash; Grades are AI-generated suggestions. Always review before submitting.
+    </div>
+
+    <script>
+    function downloadCSV() {
+        const results = {{ results_json | safe }};
+        let csv = 'Student,Score,Max Score,Percentage,Status,Feedback\n';
+        results.forEach(r => {
+            if (r.error) {
+                csv += `"${r.filename}","","","","ERROR: ${r.error.replace(/"/g, '""')}",""\n`;
+            } else {
+                const pct = r.max_score ? ((r.score / r.max_score) * 100).toFixed(1) : '';
+                const fb = (r.summary || '').replace(/"/g, '""');
+                csv += `"${r.filename}","${r.score}","${r.max_score}","${pct}%","Graded","${fb}"\n`;
+            }
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'grading_report.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    </script>
+</body>
+</html>

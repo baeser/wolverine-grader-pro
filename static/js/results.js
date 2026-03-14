@@ -58,6 +58,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         buildDropdown();
         showResult(0);
 
+        // Show "Push All" button for Canvas sessions
+        if (canvasEnabled) {
+            document.getElementById('pushAllWrap').style.display = 'block';
+        }
+
         document.getElementById('loading').style.display = 'none';
         document.getElementById('resultsContainer').style.display = 'block';
 
@@ -367,6 +372,74 @@ async function pushToCanvas(idx) {
     renderPushButton(idx);
 }
 
+// ─── Re-Grade ─────────────────────────────────────────────────────────
+async function regradeEssay() {
+    const idx = currentIndex;
+    const newStrictness = parseInt(document.getElementById('regradeStrictness').value);
+    const btn = document.getElementById('regradeBtn');
+
+    // Pull provider/key from localStorage (same keys the index page uses)
+    const provider = localStorage.getItem('wgp_provider') || '';
+    const apiKey = localStorage.getItem('wgp_api_key') || '';
+    const model = localStorage.getItem('wgp_model') || '';
+
+    if (!provider || !apiKey) {
+        alert('Cannot re-grade: API provider and key not found. Please go back to the main page and enter your API key with "Remember" checked.');
+        return;
+    }
+
+    // Disable button and show spinner
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Re-Grading\u2026';
+
+    try {
+        const resp = await fetch('/api/regrade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                idx: idx,
+                strictness: newStrictness,
+                provider: provider,
+                api_key: apiKey,
+                model: model,
+            }),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            alert('Re-grade failed: ' + (data.error || 'Unknown error'));
+            return;
+        }
+
+        // Update the result in our local array
+        results[idx] = data.result;
+
+        // Clear any teacher edits for this student (fresh result)
+        delete editedScores[idx];
+        [1, 2, 3].forEach(level => delete feedbackByLevel[level][idx]);
+
+        // Re-render the current student
+        showResult(idx);
+
+        // Show success toast
+        const toast = document.getElementById('copyToast');
+        toast.textContent = `\u2705 Re-graded at ${data.strictness_emoji} ${data.strictness_label}`;
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+            toast.textContent = 'Copied to clipboard!';
+        }, 3000);
+
+    } catch (err) {
+        alert('Network error during re-grade. Please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '\uD83D\uDD04 Re-Grade';
+    }
+}
+
 // ─── Show Essay Modal ─────────────────────────────────────────────────────
 async function showEssay() {
     const modal = document.getElementById('essayModal');
@@ -390,6 +463,92 @@ async function showEssay() {
     } catch (err) {
         content.textContent = 'Network error loading essay.';
     }
+}
+
+// ─── Push All to Canvas ───────────────────────────────────────────────────────
+function confirmPushAll() {
+    saveCurrent();
+    // Count how many valid (non-error) results we have
+    const validCount = results.filter(r => !r.error).length;
+    document.getElementById('pushAllCount').textContent = `${validCount}`;
+    document.getElementById('pushAllModal').classList.add('open');
+}
+
+async function executePushAll() {
+    document.getElementById('pushAllModal').classList.remove('open');
+
+    const btn = document.getElementById('pushAllBtn');
+    const progressDiv = document.getElementById('pushAllProgress');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Pushing\u2026';
+    progressDiv.style.display = 'block';
+
+    let pushed = 0;
+    let failed = 0;
+    const total = results.filter(r => !r.error).length;
+
+    progressDiv.innerHTML = `<div class="push-all-progress-text">Pushing 0 / ${total}\u2026</div>`;
+
+    for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.error) continue;
+
+        // Skip already-pushed
+        if (pushStatus[i] === 'pushed') {
+            pushed++;
+            progressDiv.innerHTML = `<div class="push-all-progress-text">Pushing ${pushed + failed} / ${total}\u2026 (${pushed} \u2705 ${failed > 0 ? failed + ' \u274c' : ''})</div>`;
+            continue;
+        }
+
+        const feedback = getCurrentFeedback(i);
+        const score = getCurrentScore(i);
+
+        try {
+            const resp = await fetch('/api/canvas/push-grade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId, idx: i, feedback, score }),
+            });
+            const data = await resp.json();
+
+            if (resp.ok) {
+                pushStatus[i] = 'pushed';
+                pushed++;
+            } else {
+                pushStatus[i] = { error: data.error || 'Push failed' };
+                failed++;
+            }
+        } catch (err) {
+            pushStatus[i] = { error: 'Network error' };
+            failed++;
+        }
+
+        progressDiv.innerHTML = `<div class="push-all-progress-text">Pushing ${pushed + failed} / ${total}\u2026 (${pushed} \u2705${failed > 0 ? ' ' + failed + ' \u274c' : ''})</div>`;
+    }
+
+    // Done
+    const resultEmoji = failed === 0 ? '\u2705' : '\u26a0\ufe0f';
+    const resultMsg = failed === 0
+        ? `${resultEmoji} All ${pushed} grades pushed to Canvas!`
+        : `${resultEmoji} ${pushed} pushed, ${failed} failed.`;
+
+    progressDiv.innerHTML = `<div class="push-all-progress-text done">${resultMsg}</div>`;
+    btn.disabled = false;
+    btn.innerHTML = failed === 0
+        ? '\u2705 All Pushed!'
+        : '\u2622\ufe0f Retry Failed';
+
+    // Re-render current student's push button
+    renderPushButton(currentIndex);
+
+    // Toast
+    const toast = document.getElementById('copyToast');
+    toast.textContent = resultMsg;
+    toast.classList.add('show');
+    setTimeout(() => {
+        toast.classList.remove('show');
+        toast.textContent = 'Copied to clipboard!';
+    }, 4000);
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────
@@ -420,6 +579,118 @@ function exportJSON() {
     }));
     downloadFile('grades.json', JSON.stringify(data, null, 2), 'application/json');
 }
+
+// ─── Report ──────────────────────────────────────────────────────────────────
+function openReport() {
+    window.open(`/report?session_id=${sessionId}`, '_blank');
+}
+
+// ─── Add Essays to Session ───────────────────────────────────────────────────
+let addEssayFiles = [];
+
+function toggleAddEssays() {
+    const panel = document.getElementById('addEssaysPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function handleAddFiles(fileList) {
+    const valid = ['.docx', '.pdf', '.txt'];
+    for (const f of fileList) {
+        const ext = f.name.substring(f.name.lastIndexOf('.')).toLowerCase();
+        if (valid.includes(ext) && !addEssayFiles.some(x => x.name === f.name)) {
+            addEssayFiles.push(f);
+        }
+    }
+    renderAddFileList();
+}
+
+function removeAddFile(idx) {
+    addEssayFiles.splice(idx, 1);
+    renderAddFileList();
+}
+
+function renderAddFileList() {
+    const listDiv = document.getElementById('addEssayFileList');
+    const btn = document.getElementById('addEssaysBtn');
+    if (addEssayFiles.length === 0) {
+        listDiv.style.display = 'none';
+        btn.style.display = 'none';
+        return;
+    }
+    listDiv.style.display = 'block';
+    btn.style.display = 'inline-flex';
+    listDiv.innerHTML = addEssayFiles.map((f, i) =>
+        `<div class="essay-file-item">
+            <span class="file-icon">\uD83D\uDCC4</span>
+            <span class="file-name">${f.name}</span>
+            <button class="remove-file" onclick="removeAddFile(${i})">&times;</button>
+        </div>`
+    ).join('');
+}
+
+async function submitAddEssays() {
+    if (addEssayFiles.length === 0) return;
+
+    const provider = localStorage.getItem('wgp_provider') || '';
+    const apiKey = localStorage.getItem('wgp_api_key') || '';
+
+    if (!provider || !apiKey) {
+        alert('Cannot add essays: API provider and key not found. Please go back to the main page and enter your API key with "Remember" checked.');
+        return;
+    }
+
+    const btn = document.getElementById('addEssaysBtn');
+    const errDiv = document.getElementById('addEssaysError');
+    errDiv.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Grading\u2026';
+
+    const formData = new FormData();
+    formData.append('session_id', sessionId);
+    formData.append('provider', provider);
+    formData.append('api_key', apiKey);
+    addEssayFiles.forEach(f => formData.append('essay_files', f, f.name));
+
+    try {
+        const resp = await fetch('/api/session/add-essays', { method: 'POST', body: formData });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            errDiv.textContent = data.error || 'Failed to add essays.';
+            errDiv.style.display = 'block';
+        } else {
+            // Reload the page to show updated results
+            const toast = document.getElementById('copyToast');
+            toast.textContent = `\u2705 Added ${data.added} essay(s) — now ${data.new_total} total`;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+                toast.textContent = 'Copied to clipboard!';
+            }, 3000);
+            // Refresh results by reloading
+            window.location.reload();
+        }
+    } catch (err) {
+        errDiv.textContent = 'Network error. Please try again.';
+        errDiv.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '\uD83D\uDCDA Grade & Add to Batch';
+    }
+}
+
+// Set up drag-and-drop for add essays
+document.addEventListener('DOMContentLoaded', () => {
+    const zone = document.getElementById('addDropZone');
+    if (!zone) return;
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        handleAddFiles(e.dataTransfer.files);
+    });
+});
 
 function downloadFile(name, content, type) {
     const blob = new Blob([content], { type });

@@ -315,6 +315,14 @@ document.getElementById('gradeForm').addEventListener('submit', async function (
             return;
         }
 
+        // Save provider, model, and API key to localStorage for re-grading on results page
+        const provider = document.querySelector('input[name="provider"]:checked')?.value || '';
+        const model = document.querySelector('select[name="model"]:not(:disabled)')?.value || '';
+        const apiKey = document.getElementById('api_key').value.trim();
+        localStorage.setItem('wgp_provider', provider);
+        localStorage.setItem('wgp_model', model);
+        if (apiKey) localStorage.setItem('wgp_api_key', apiKey);
+
         window.location.href = `/processing?session_id=${data.session_id}&total=${data.total}`;
     } catch (err) {
         errorDiv.textContent = 'Network error. Please try again.';

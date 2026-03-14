@@ -88,9 +88,9 @@ GRADING MODE: {info['emoji']} {info['label']} (Level {info['level']}/10)
 INSTRUCTIONS:
 1. Read the essay carefully and thoroughly.
 2. Evaluate it against EACH criterion in the rubric, applying the grading mode above.
-3. For every rubric criterion, determine: the criterion name, points earned, points possible, and a 1-2 sentence explanation of why that score was given.
+3. For every rubric criterion, determine: the criterion name, points earned, points possible, and a 1-2 sentence explanation that references SPECIFIC content from the student's essay. Do NOT give generic feedback like "your argument could be stronger." Instead, cite a specific claim, example, or passage the student wrote and explain what worked or what was missing. For example: "While you mention the Battle of Midway, you don't fully explain what made it a turning point" or "Your comparison of photosynthesis to a factory assembly line was a strong analogy that showed real understanding."
 4. Sum the category scores to get the total score. Determine max_score from the rubric.
-5. Write a 3-5 sentence overall feedback paragraph addressed directly to the student (use "you/your"). Start with what they did well, then explain where points were lost and why.
+5. Write a 3-5 sentence overall feedback paragraph addressed directly to the student (use "you/your"). Start with something specific they did well (reference their actual writing), then explain where points were lost by pointing to specific examples, claims, or sections in their essay that fell short. Every piece of feedback must connect to something the student actually wrote.
 6. Your tone and strictness MUST reflect the grading mode specified above.
 
 You MUST respond in EXACTLY this JSON format and nothing else:
