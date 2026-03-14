@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- Recent Sessions (hidden until there are saved sessions) -->
+<div class="card" id="sessionsCard" style="display:none;">
+    <h2>📂 Recent Sessions</h2>
+    <div id="sessionsList"></div>
+</div>
+
+<form id="gradeForm" enctype="multipart/form-data">
+    <!-- AI Configuration -->
+    <div class="card">
+        <h2>1. AI Configuration</h2>
+
+        <!-- Provider -->
+        <div class="form-group">
+            <label>AI Provider</label>
+            <div class="provider-cards">
+                <label class="provider-card active" id="card-claude">
+                    <input type="radio" name="provider" value="claude" checked onchange="switchProvider('claude')">
+                    <span class="provider-icon">&#x25C6;</span>
+                    <span class="provider-name">Claude</span>
+                    <span class="provider-sub">by Anthropic</span>
+                </label>
+                <label class="provider-card" id="card-openai">
+                    <input type="radio" name="provider" value="openai" onchange="switchProvider('openai')">
+                    <span class="provider-icon">&#x2665;</span>
+                    <span class="provider-name">OpenAI</span>
+                    <span class="provider-sub">ChatGPT / GPT-4</span>
+                </label>
+                <label class="provider-card" id="card-gemini">
+                    <input type="radio" name="provider" value="gemini" onchange="switchProvider('gemini')">
+                    <span class="provider-icon">&#x2726;</span>
+                    <span class="provider-name">Gemini</span>
+                    <span class="provider-sub">by Google</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Model -->
+        <div class="form-group">
+            <label>Model</label>
+            <div id="models-claude">
+                <select id="model-claude" name="model">
+                    <option value="claude-opus-4-5">Claude Opus 4 &mdash; Most powerful &bull; Higher cost</option>
+                    <option value="claude-sonnet-4-20250514" selected>Claude Sonnet 4 &mdash; Best balance &bull; Recommended &#11088;</option>
+                    <option value="claude-haiku-3-5-20241022">Claude Haiku 3.5 &mdash; Fastest &bull; Lowest cost</option>
+                </select>
+            </div>
+            <div id="models-openai" style="display:none;">
+                <select id="model-openai" name="model" disabled>
+                    <option value="gpt-4o" selected>GPT-4o &mdash; Most capable &bull; Recommended &#11088;</option>
+                    <option value="gpt-4o-mini">GPT-4o mini &mdash; Fast &amp; economical</option>
+                    <option value="o3-mini">o3-mini &mdash; Advanced reasoning</option>
+                </select>
+            </div>
+            <div id="models-gemini" style="display:none;">
+                <select id="model-gemini" name="model" disabled>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro &mdash; Most powerful &bull; Higher cost</option>
+                    <option value="gemini-2.0-flash" selected>Gemini 2.0 Flash &mdash; Best balance &bull; Recommended &#11088;</option>
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash &mdash; Fastest &bull; Lowest cost</option>
+                </select>
+            </div>
+            <p class="help-text model-hint" id="model-hint-claude">Sonnet 4 is the sweet spot for grading &mdash; great quality at a reasonable cost. Get an API key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.</p>
+            <p class="help-text model-hint" id="model-hint-openai" style="display:none;">GPT-4o gives the most consistent rubric-following across large batches. Get an API key at <a href="https://platform.openai.com" target="_blank">platform.openai.com</a>.</p>
+            <p class="help-text model-hint" id="model-hint-gemini" style="display:none;">Gemini 2.0 Flash is fast and sharp &mdash; get a free API key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a>.</p>
+        </div>
+
+        <!-- API Key -->
+        <div class="form-group">
+            <label for="api_key">API Key</label>
+            <div class="key-input-wrapper">
+                <input type="password" id="api_key" name="api_key" placeholder="Enter your API key" required>
+                <button type="button" class="key-toggle" onclick="toggleKey()">Show</button>
+            </div>
+            <div class="key-remember-row">
+                <label class="remember-label">
+                    <input type="checkbox" id="rememberKey">
+                    Remember key in this browser
+                </label>
+                <button type="button" class="forget-btn" id="forgetBtn" onclick="forgetKey()" style="display:none;">
+                    &times; Forget saved key
+                </button>
+            </div>
+            <p class="help-text">Saved keys are stored in your browser&rsquo;s local storage &mdash; only accessible on this device.</p>
+        </div>
+    </div>
+
+    <!-- Grading Strictness -->
+    <div class="card">
+        <h2>2. Grading Strictness</h2>
+        <div class="strictness-wrap">
+            <div class="strictness-label-display" id="strictnessDisplay">
+                <span class="strictness-emoji" id="strictnessEmoji">📚</span>
+                <span class="strictness-name" id="strictnessName">Standard Classroom Mode</span>
+                <span class="strictness-level" id="strictnessLevel">Level 4/10</span>
+            </div>
+            <input
+                type="range"
+                id="strictness"
+                name="strictness"
+                min="2" max="10" step="2"
+                value="4"
+                class="strictness-slider"
+                oninput="updateStrictness(this.value)"
+            >
+            <div class="strictness-ticks">
+                <span data-val="2">🌟<br>Effort<br>Counts!</span>
+                <span data-val="4">📚<br>Standard<br>Classroom</span>
+                <span data-val="6">🖊️<br>Red Pen<br>Activated</span>
+                <span data-val="8">🔍<br>Grammar<br>Detective</span>
+                <span data-val="10">💀<br>College Prof<br>Who Hates You</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rubric -->
+    <div class="card">
+        <h2>3. Rubric</h2>
+        <div class="tab-group">
+            <button type="button" class="tab-btn active" onclick="switchTab('paste')">Paste Text</button>
+            <button type="button" class="tab-btn" onclick="switchTab('upload')">Upload File</button>
+            <button type="button" class="tab-btn tab-btn-build" onclick="switchTab('build')">&#10024; Build with AI</button>
+        </div>
+
+        <!-- Paste tab -->
+        <div id="tab-paste" class="tab-content active">
+            <div class="form-group">
+                <textarea id="rubric_text" name="rubric_text" placeholder="Paste your rubric here...&#10;&#10;Example:&#10;Thesis Statement (20 pts): Clear, arguable thesis...&#10;Evidence &amp; Analysis (30 pts): Uses primary sources...&#10;Organization (20 pts): Logical paragraph structure...&#10;Grammar &amp; Style (15 pts): Proper grammar, academic tone...&#10;Citations (15 pts): Correct APA format..."></textarea>
+            </div>
+        </div>
+
+        <!-- Upload tab -->
+        <div id="tab-upload" class="tab-content">
+            <div class="form-group">
+                <input type="file" id="rubric_file" name="rubric_file" accept=".docx,.pdf,.txt">
+                <p class="help-text">Accepts .docx, .pdf, or .txt files</p>
+            </div>
+        </div>
+
+        <!-- Build tab -->
+        <div id="tab-build" class="tab-content">
+            <div class="form-group">
+                <label for="rubricPrompt">Describe your rubric</label>
+                <textarea id="rubricPrompt" placeholder="Describe what you want...&#10;&#10;Examples:&#10;&bull; 5-paragraph argumentative essay, 9th grade English, 100 pts. Emphasize thesis, evidence, and analysis.&#10;&bull; Lab report for AP Chemistry, 50 pts. Sections: hypothesis, procedure, data, conclusion, and citations.&#10;&bull; Personal narrative for 7th grade, 40 pts. Focus on voice, structure, descriptive language, and conventions."></textarea>
+                <div class="build-actions">
+                    <button type="button" class="btn btn-primary" id="generateBtn" onclick="generateRubric()">
+                        &#10024; Generate Rubric
+                    </button>
+                </div>
+            </div>
+
+            <!-- Generated output (hidden until ready) -->
+            <div id="buildOutput" style="display:none;">
+                <div class="build-output-header">
+                    <span>&#9989; Rubric generated &mdash; review and edit below:</span>
+                </div>
+                <textarea id="generatedRubric" class="generated-rubric-area"></textarea>
+                <div class="build-actions">
+                    <button type="button" class="btn btn-success" onclick="useGeneratedRubric()">
+                        &#10003; Use This Rubric
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="generateRubric()">
+                        &#8635; Regenerate
+                    </button>
+                </div>
+            </div>
+            <div id="buildError" class="alert alert-error" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Essays -->
+    <div class="card">
+        <h2>4. Student Essays</h2>
+        <input type="hidden" id="essay_mode" name="essay_mode" value="zip">
+        <input type="hidden" id="canvas_prefetch_id" name="canvas_prefetch_id" value="">
+        <div class="tab-group">
+            <button type="button" class="tab-btn active" id="essay-tab-zip" onclick="switchEssayTab('zip')">📦 Upload ZIP</button>
+            <button type="button" class="tab-btn" id="essay-tab-files" onclick="switchEssayTab('files')">📂 Select Files</button>
+            <button type="button" class="tab-btn tab-btn-canvas" id="essay-tab-canvas" onclick="switchEssayTab('canvas')">🎓 Canvas LMS</button>
+        </div>
+
+        <!-- ZIP tab -->
+        <div id="essay-content-zip" class="tab-content active">
+            <div class="form-group">
+                <input type="file" id="zip_file" name="zip_file" accept=".zip">
+                <p class="help-text">Upload a .zip containing student essays (.docx, .pdf, or .txt). File names will be used as student identifiers.</p>
+            </div>
+            <div id="file-info" style="display:none;" class="help-text"></div>
+        </div>
+
+        <!-- Select Files tab -->
+        <div id="essay-content-files" class="tab-content">
+            <div class="form-group">
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-icon">📂</div>
+                    <div class="drop-zone-text">Drag &amp; drop essay files here</div>
+                    <div class="drop-zone-sub">or <span class="drop-zone-browse">click to browse</span></div>
+                    <div class="drop-zone-types">.docx &middot; .pdf &middot; .txt</div>
+                    <input type="file" id="essay_files" name="essay_files" multiple accept=".docx,.pdf,.txt" style="display:none;">
+                </div>
+                <div id="essay-file-list" class="essay-file-list" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Canvas LMS tab -->
+        <div id="essay-content-canvas" class="tab-content">
+
+            <!-- Connection credentials -->
+            <div class="canvas-connect-section" id="canvas-connect-section">
+                <div class="form-row">
+                    <div>
+                        <label for="canvas_url">Canvas URL</label>
+                        <input type="text" id="canvas_url" placeholder="https://canvas.university.edu" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="canvas_token">API Token</label>
+                        <div class="key-input-wrapper">
+                            <input type="password" id="canvas_token" placeholder="Your Canvas access token" autocomplete="off">
+                            <button type="button" class="key-toggle" onclick="toggleCanvasToken()">Show</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="key-remember-row" style="margin-top:0.5rem;">
+                    <label class="remember-label">
+                        <input type="checkbox" id="rememberCanvasKey">
+                        Remember in this browser
+                    </label>
+                    <button type="button" class="forget-btn" id="forgetCanvasBtn" onclick="forgetCanvasKey()" style="display:none;">
+                        &times; Forget saved Canvas key
+                    </button>
+                </div>
+                <div style="margin-top:0.75rem;">
+                    <button type="button" class="btn btn-canvas" id="connectCanvasBtn" onclick="connectCanvas()">
+                        🔌 Connect to Canvas
+                    </button>
+                </div>
+                <div id="canvas-connect-error" class="alert alert-error" style="display:none; margin-top:0.5rem;"></div>
+                <p class="help-text" style="margin-top:0.75rem;">
+                    Get your token: <strong>Canvas &rarr; Profile &rarr; Settings &rarr; New Access Token</strong>
+                </p>
+            </div>
+
+            <!-- Course + Assignment selectors (shown after connecting) -->
+            <div id="canvas-selectors" style="display:none;">
+                <div class="canvas-connected-badge" id="canvas-connected-badge">&#10003; Connected</div>
+                <div class="form-group" style="margin-top:0.75rem;">
+                    <label for="canvas_course">Course</label>
+                    <select id="canvas_course" onchange="loadCanvasAssignments()">
+                        <option value="">Select a course&hellip;</option>
+                    </select>
+                </div>
+                <div class="form-group" id="canvas-assignment-group" style="display:none;">
+                    <label for="canvas_assignment">Assignment</label>
+                    <select id="canvas_assignment" onchange="onCanvasAssignmentChange()">
+                        <option value="">Select an assignment&hellip;</option>
+                    </select>
+                </div>
+                <div id="canvas-fetch-wrap" style="display:none; margin-top:0.5rem;">
+                    <button type="button" class="btn btn-canvas" id="fetchSubmissionsBtn" onclick="fetchCanvasSubmissions()">
+                        &#11015;&#65039; Fetch Submissions
+                    </button>
+                </div>
+                <div id="canvas-fetch-error" class="alert alert-error" style="display:none; margin-top:0.5rem;"></div>
+            </div>
+
+            <!-- Preview of fetched submissions -->
+            <div id="canvas-preview" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Submit -->
+    <div id="form-error" class="alert alert-error" style="display:none;"></div>
+    <button type="submit" id="submitBtn" class="btn btn-primary btn-block">
+        Start Grading
+    </button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+<script src="{{ url_for('static', filename='js/canvas.js') }}"></script>
+<script>
+// ── Recent Sessions loader ─────────────────────────────────────────────────
+(async function loadSessions() {
+    try {
+        const resp = await fetch('/api/session/list');
+        const data = await resp.json();
+        const sessions = data.sessions || [];
+        if (!sessions.length) return;
+
+        const card = document.getElementById('sessionsCard');
+        const list = document.getElementById('sessionsList');
+        card.style.display = 'block';
+
+        sessions.forEach(s => {
+            const saved = s.saved_at
+                ? new Date(s.saved_at).toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit'
+                  })
+                : '';
+            const canvasBadge = s.canvas_enabled
+                ? '<span class="session-canvas-badge">🎓 Canvas</span>' : '';
+
+            const row = document.createElement('div');
+            row.className = 'session-item';
+            row.id = `session-${s.session_id}`;
+            row.innerHTML = `
+                <div class="session-meta">
+                    <span class="session-emoji">${s.strictness_emoji || '📝'}</span>
+                    <div class="session-info">
+                        <div class="session-label">${s.label}${canvasBadge}</div>
+                        <div class="session-date">${saved}</div>
+                    </div>
+                </div>
+                <div class="session-actions">
+                    <button class="btn btn-primary btn-sm" onclick="openSession('${s.session_id}', this)">
+                        Open
+                    </button>
+                    <button class="btn btn-sm session-delete-btn" onclick="deleteSession('${s.session_id}', this)"
+                        title="Delete this saved session">✕</button>
+                </div>`;
+            list.appendChild(row);
+        });
+    } catch (e) { /* silent */ }
+})();
+
+async function openSession(sessionId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+    try {
+        const resp = await fetch(`/api/session/load/${sessionId}`);
+        const data = await resp.json();
+        if (data.session_id) {
+            window.location.href = `/results?session_id=${data.session_id}`;
+        } else {
+            btn.textContent = 'Error';
+            btn.disabled = false;
+        }
+    } catch (e) {
+        btn.textContent = 'Error';
+        btn.disabled = false;
+    }
+}
+
+async function deleteSession(sessionId, btn) {
+    if (!confirm('Delete this saved session? This cannot be undone.')) return;
+    btn.disabled = true;
+    try {
+        const resp = await fetch(`/api/session/delete/${sessionId}`, { method: 'DELETE' });
+        if (resp.ok) {
+            const row = document.getElementById(`session-${sessionId}`);
+            row.style.opacity = '0';
+            row.style.transition = 'opacity 0.3s';
+            setTimeout(() => {
+                row.remove();
+                // hide card if empty
+                if (!document.querySelector('.session-item')) {
+                    document.getElementById('sessionsCard').style.display = 'none';
+                }
+            }, 300);
+        }
+    } catch (e) { btn.disabled = false; }
+}
+</script>
+{% endblock %}

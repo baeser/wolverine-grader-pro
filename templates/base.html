@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wolverine Grader Pro 3.0</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Wolverine Grader Pro 3.0</h1>
+            <p class="subtitle">AI-Powered Essay Grading Assistant</p>
+        </div>
+        <button class="help-btn" onclick="document.getElementById('setupModal').classList.add('open')" title="Setup Instructions">
+            ? How It Works
+        </button>
+    </header>
+
+    <!-- Setup Instructions Modal -->
+    <div class="modal-backdrop" id="setupModal" onclick="if(event.target===this)this.classList.remove('open')">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2>&#127974; How to Use Wolverine Grader Pro</h2>
+                <button class="modal-close" onclick="document.getElementById('setupModal').classList.remove('open')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <ol class="setup-steps">
+                    <li>
+                        <span class="step-num">1</span>
+                        <div>
+                            <strong>Choose your AI provider &amp; model</strong>
+                            <p>Pick Claude, OpenAI, or Gemini. Select a model from the dropdown &mdash; each provider lists links to grab a free or paid API key. Paste your key in and check &ldquo;Remember&rdquo; so you only have to do this once.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">2</span>
+                        <div>
+                            <strong>Set your grading strictness</strong>
+                            <p>Drag the slider from <em>Effort Counts!</em> (generous) to <em>College Prof Who Hates You</em> (maximum rigor). This controls how harshly the AI applies the rubric.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">3</span>
+                        <div>
+                            <strong>Provide a rubric</strong>
+                            <p>Paste it as text, upload a .docx/.pdf/.txt file, or use <em>&#10024; Build with AI</em> to describe what you want and let the AI generate one for you.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">4</span>
+                        <div>
+                            <strong>Load the student essays</strong>
+                            <p>Three options: upload a <strong>ZIP file</strong> (e.g. downloaded from Canvas), <strong>select individual files</strong> from your computer via drag-and-drop or file picker, or connect to <strong>Canvas LMS</strong> directly to pull submissions from any assignment in any course.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">5</span>
+                        <div>
+                            <strong>Start Grading</strong>
+                            <p>Hit the button and watch the AI work through each essay in real time. A progress log shows each student as they&rsquo;re graded.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">6</span>
+                        <div>
+                            <strong>Review scores &amp; feedback</strong>
+                            <p>Navigate through students one by one. The AI-suggested score is editable &mdash; just click and type. The feedback comment is also fully editable before anything goes to students.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">7</span>
+                        <div>
+                            <strong>Choose your feedback detail level</strong>
+                            <p>Toggle between <em>Summary Only</em>, <em>Scores + Summary</em> (shows points per rubric category), or <em>Full Breakdown</em> (per-category scores with explanations). The AI already processed everything &mdash; no re-grading needed.</p>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-num">8</span>
+                        <div>
+                            <strong>Send grades to students</strong>
+                            <p>Use <em>Copy for Canvas</em> to copy a student&rsquo;s score and feedback to your clipboard for pasting into SpeedGrader &mdash; or if you connected via Canvas LMS, hit <em>&#127891; Push to Canvas</em> to send the grade and comment directly. No copy-paste required.</p>
+                        </div>
+                    </li>
+                    <li class="step-final">
+                        <span class="step-num">&#127881;</span>
+                        <div>
+                            <strong>Enjoy your extra free time.</strong>
+                            <p>You just graded a full class batch in minutes instead of hours. Go outside.</p>
+                        </div>
+                    </li>
+                </ol>
+            </div>
+        </div>
+    </div>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <p>Wolverine Grader Pro 3.0 &mdash; Grades are AI-generated suggestions. Always review before submitting.</p>
+        <div class="footer-brand">
+            <span class="footer-powered">Powered by</span>
+            <img src="{{ url_for('static', filename='TreetownAILogoNewest.png') }}" alt="Treetown AI" class="footer-logo">
+        </div>
+    </footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,194 @@
+import json
+import time
+
+from .prompt_builder import build_system_prompt, build_essay_message, DEFAULT_STRICTNESS
+
+
+class GradingError(Exception):
+    pass
+
+
+DEFAULT_MODELS = {
+    'claude': 'claude-sonnet-4-20250514',
+    'openai': 'gpt-4o',
+    'gemini': 'gemini-2.0-flash',
+}
+
+ALLOWED_MODELS = {
+    'claude': {'claude-opus-4-5', 'claude-sonnet-4-20250514', 'claude-haiku-3-5-20241022'},
+    'openai': {'gpt-4o', 'gpt-4o-mini', 'o3-mini'},
+    'gemini': {'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'},
+}
+
+MODEL_LABELS = {
+    # Claude
+    'claude-opus-4-5':           'Claude Opus 4',
+    'claude-sonnet-4-20250514':  'Claude Sonnet 4',
+    'claude-haiku-3-5-20241022': 'Claude Haiku 3.5',
+    # OpenAI
+    'gpt-4o':                    'GPT-4o',
+    'gpt-4o-mini':               'GPT-4o mini',
+    'o3-mini':                   'o3-mini',
+    # Gemini
+    'gemini-2.5-pro':            'Gemini 2.5 Pro',
+    'gemini-2.0-flash':          'Gemini 2.0 Flash',
+    'gemini-1.5-flash':          'Gemini 1.5 Flash',
+}
+
+
+class GraderAI:
+    def __init__(self, provider: str, api_key: str, model: str = None):
+        self.provider = provider.lower()
+        self.api_key = api_key
+
+        if self.provider not in ALLOWED_MODELS:
+            raise GradingError(f"Unknown provider: {provider}")
+
+        # Validate model — fall back to default if unrecognised
+        allowed = ALLOWED_MODELS[self.provider]
+        default = DEFAULT_MODELS[self.provider]
+        self.model = model if model in allowed else default
+
+        if self.provider == 'claude':
+            import anthropic
+            self.client = anthropic.Anthropic(api_key=api_key)
+        elif self.provider == 'openai':
+            import openai
+            self.client = openai.OpenAI(api_key=api_key)
+        elif self.provider == 'gemini':
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            self.client = genai  # store module reference; models are created per-call
+
+    def grade_essay(self, rubric: str, essay_text: str, essay_name: str,
+                    strictness: int = DEFAULT_STRICTNESS) -> dict:
+        system_prompt = build_system_prompt(rubric, strictness)
+        user_message = build_essay_message(essay_text, essay_name)
+
+        last_error = None
+        for attempt in range(3):
+            try:
+                raw = self._call_api(system_prompt, user_message)
+                return self._parse_response(raw)
+            except GradingError:
+                raise
+            except Exception as e:
+                last_error = e
+                err_str = str(e).lower()
+                if 'rate' in err_str or '429' in str(e) or 'quota' in err_str:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                break
+
+        raise GradingError(f"Failed after 3 attempts: {last_error}")
+
+    def _call_api(self, system_prompt: str, user_message: str) -> str:
+        if self.provider == 'claude':
+            return self._call_claude(system_prompt, user_message)
+        elif self.provider == 'openai':
+            return self._call_openai(system_prompt, user_message)
+        else:
+            return self._call_gemini(system_prompt, user_message)
+
+    def _call_claude(self, system_prompt: str, user_message: str) -> str:
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            return response.content[0].text
+        except Exception as e:
+            err = str(e).lower()
+            if 'authentication' in err or 'unauthorized' in err or '401' in str(e):
+                raise GradingError("Invalid Anthropic API key. Please check your key and try again.")
+            raise
+
+    def _call_openai(self, system_prompt: str, user_message: str) -> str:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=2048,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            err = str(e).lower()
+            if 'authentication' in err or 'unauthorized' in err or '401' in str(e):
+                raise GradingError("Invalid OpenAI API key. Please check your key and try again.")
+            raise
+
+    def _call_gemini(self, system_prompt: str, user_message: str) -> str:
+        try:
+            gmodel = self.client.GenerativeModel(
+                model_name=self.model,
+                system_instruction=system_prompt,
+            )
+            response = gmodel.generate_content(user_message)
+
+            # Safety check — Gemini can block responses
+            if not response.candidates:
+                raise GradingError("Gemini returned no response (possibly blocked by safety filters).")
+
+            # Check finish reason
+            finish_reason = response.candidates[0].finish_reason
+            # finish_reason 1 = STOP (normal), anything else may indicate an issue
+            if finish_reason not in (1, 'STOP'):
+                if finish_reason in (3, 'SAFETY'):
+                    raise GradingError("Gemini blocked this response due to safety filters.")
+
+            return response.text
+        except GradingError:
+            raise
+        except Exception as e:
+            err = str(e).lower()
+            if 'api_key' in err or 'permission' in err or '403' in str(e) or 'invalid' in err:
+                raise GradingError(
+                    "Invalid Google API key. Get one free at aistudio.google.com."
+                )
+            raise
+
+    def _parse_response(self, raw: str) -> dict:
+        text = raw.strip()
+        # Strip markdown code fences if present
+        if text.startswith('```'):
+            lines = text.split('\n')
+            lines = lines[1:]  # remove opening fence
+            if lines and lines[-1].strip() == '```':
+                lines = lines[:-1]
+            text = '\n'.join(lines)
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            raise GradingError(f"AI returned invalid JSON. Raw response:\n{raw[:500]}")
+
+        if 'score' not in data or 'summary' not in data:
+            raise GradingError(f"AI response missing required fields. Got: {list(data.keys())}")
+
+        # Parse and validate categories — gracefully handle missing/malformed entries
+        raw_cats = data.get('categories') or []
+        categories = []
+        for c in raw_cats:
+            if not isinstance(c, dict):
+                continue
+            categories.append({
+                'name':        str(c.get('name', 'Category')),
+                'earned':      float(c.get('earned', 0)),
+                'possible':    float(c.get('possible', 0)),
+                'explanation': str(c.get('explanation', '')),
+            })
+
+        return {
+            'score':      float(data['score']),
+            'max_score':  float(data.get('max_score', 100)),
+            'summary':    str(data['summary']),
+            'categories': categories,
+        }

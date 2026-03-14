@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div id="loading" class="card" style="text-align: center;">
+    <span class="spinner"></span> Loading results...
+</div>
+
+<div id="resultsContainer" style="display:none;">
+    <!-- Strictness badge -->
+    <div id="strictnessBadge" style="text-align:center; margin-bottom:0.75rem;">
+        <span class="strictness-badge"></span>
+    </div>
+
+    <!-- Navigation -->
+    <div class="results-nav">
+        <div class="nav-buttons">
+            <button class="btn btn-secondary btn-sm" id="prevBtn" onclick="navigate(-1)">&larr; Previous</button>
+            <button class="btn btn-secondary btn-sm" id="nextBtn" onclick="navigate(1)">Next &rarr;</button>
+        </div>
+        <select id="essaySelect" onchange="goTo(this.value)"></select>
+        <span id="counterText" style="font-weight:600; color: var(--blue);"></span>
+    </div>
+
+    <!-- Essay Result Card -->
+    <div class="card" id="resultCard">
+        <div class="filename-display" id="filename"></div>
+        <div class="score-display" id="scoreDisplay"></div>
+        <div class="form-group">
+            <label>Student Feedback Detail</label>
+            <div class="feedback-detail-toggle" id="feedbackToggle">
+                <label class="detail-opt">
+                    <input type="radio" name="feedbackLevel" value="1" checked onchange="setFeedbackLevel(1)">
+                    <span>&#128221; Summary Only</span>
+                </label>
+                <label class="detail-opt">
+                    <input type="radio" name="feedbackLevel" value="2" onchange="setFeedbackLevel(2)">
+                    <span>&#128202; Scores + Summary</span>
+                </label>
+                <label class="detail-opt">
+                    <input type="radio" name="feedbackLevel" value="3" onchange="setFeedbackLevel(3)">
+                    <span>&#128203; Full Breakdown</span>
+                </label>
+            </div>
+            <p class="help-text" style="margin: 0.2rem 0 0.5rem;">AI graded at full detail &mdash; choose how much to send students. No re-grading needed.</p>
+            <textarea class="feedback-edit" id="feedbackArea"></textarea>
+        </div>
+        <div style="text-align:center; margin: 1rem 0 0.5rem;">
+            <button class="btn btn-show-essay" onclick="showEssay()">&#128196; Show Essay</button>
+        </div>
+        <div class="action-row">
+            <button class="btn btn-primary" onclick="copyToCanvas()">Copy for Canvas</button>
+            <button class="btn btn-secondary" onclick="copyScoreOnly()">Copy Score Only</button>
+            <div id="canvasPushWrap" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Error Card (shown instead of result for errored essays) -->
+    <div class="card error-card" id="errorCard" style="display:none;">
+        <div class="filename-display" id="errorFilename"></div>
+        <p class="error-msg" id="errorMsg"></p>
+    </div>
+
+    <!-- Export -->
+    <div class="export-row">
+        <button class="btn btn-secondary btn-sm" onclick="exportCSV()">Export All as CSV</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportJSON()">Export All as JSON</button>
+        <a href="/" class="btn btn-secondary btn-sm">Grade Another Batch</a>
+    </div>
+</div>
+
+<!-- Essay Viewer Modal -->
+<div class="modal-backdrop" id="essayModal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal-box" style="max-width: 750px; max-height: 85vh;">
+        <div class="modal-header">
+            <h2 id="essayModalTitle">Student Essay</h2>
+            <button class="modal-close" onclick="document.getElementById('essayModal').classList.remove('open')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="essayModalContent" style="white-space: pre-wrap; font-family: 'Georgia', serif; font-size: 0.95rem; line-height: 1.7; color: var(--gray-800);">
+                Loading...
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="copy-toast" id="copyToast">Copied to clipboard!</div>
+<div class="autosave-badge" id="autoSaveBadge">💾 Auto-saved</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/results.js') }}"></script>
+{% endblock %}
