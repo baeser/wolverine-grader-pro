@@ -9,8 +9,13 @@
 <body>
     <header>
         <div class="header-content">
-            <h1>Wolverine Grader Pro 3.0</h1>
-            <p class="subtitle">AI-Powered Essay Grading Assistant</p>
+            <div class="header-logo-row">
+                <img src="{{ url_for('static', filename='wolverinegraderpro-logo.png') }}" alt="Wolverine Grader Pro" class="header-logo">
+                <div>
+                    <h1>Wolverine Grader Pro 3.0</h1>
+                    <p class="subtitle">AI-Powered Essay Grading Assistant</p>
+                </div>
+            </div>
         </div>
         <button class="help-btn" onclick="document.getElementById('setupModal').classList.add('open')" title="Setup Instructions">
             &#128218; How It Works

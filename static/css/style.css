@@ -56,6 +56,26 @@ header {
     color: var(--blue);
 }
 
+/* ── Header Logo ───────────────────────────────────────────────────────────── */
+.header-logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.header-logo {
+    height: 64px;
+    width: auto;
+    border-radius: 10px;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
+}
+
+@media (max-width: 600px) {
+    .header-logo { height: 48px; }
+    .header-logo-row { gap: 0.6rem; }
+}
+
 /* ── Setup Modal ────────────────────────────────────────────────────────────── */
 .modal-backdrop {
     display: none;
