@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Orders — only Cloud Functions (admin SDK) can read/write
+    match /orders/{orderId} {
+      allow read, write: if false;
+    }
+
+    // Licenses — only Cloud Functions (admin SDK) can read/write
+    match /licenses/{licenseId} {
+      allow read, write: if false;
+    }
+
+    // Activations — only Cloud Functions (admin SDK) can read/write
+    match /activations/{activationId} {
+      allow read, write: if false;
+    }
+
+    // App releases — only Cloud Functions (admin SDK) can read/write
+    match /app_releases/{releaseId} {
+      allow read, write: if false;
+    }
+
+    // Admin collection — only authenticated admin users
+    match /admins/{adminId} {
+      allow read, write: if false;
+    }
+  }
+}

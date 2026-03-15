@@ -1548,9 +1548,197 @@ input[type="file"] {
 
 .autosave-badge.show { opacity: 1; }
 
+/* ── License Activation Page ──────────────────────────────────────────────── */
+.license-welcome-box,
+.license-active-box,
+.license-trial-box,
+.license-expired-box {
+    text-align: center;
+    padding: 2rem 1.5rem;
+}
+
+.license-welcome-box h2,
+.license-active-box h2,
+.license-trial-box h2,
+.license-expired-box h2 {
+    border: none;
+    padding-bottom: 0;
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.license-active-icon,
+.license-trial-icon,
+.license-expired-icon {
+    font-size: 3rem;
+    line-height: 1;
+    margin-bottom: 0.75rem;
+}
+
+.license-active-name {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--blue);
+    margin-bottom: 0.25rem;
+}
+
+.license-active-key {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--gray-600);
+    letter-spacing: 1px;
+    margin-bottom: 0.25rem;
+}
+
+.license-active-detail {
+    font-size: 0.85rem;
+    color: var(--gray-600);
+}
+
+.license-trial-counter {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--blue);
+    margin-bottom: 0.75rem;
+}
+
+.trial-bar-track {
+    width: 100%;
+    max-width: 300px;
+    height: 8px;
+    background: var(--gray-200);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0 auto;
+}
+
+.trial-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue), var(--blue-lighter));
+    border-radius: 4px;
+    transition: width 0.4s;
+}
+
+.license-divider {
+    border-top: 1px solid var(--gray-200);
+    margin: 1.25rem 0;
+}
+
+.license-or-text {
+    font-size: 0.9rem;
+    color: var(--gray-600);
+    margin-bottom: 0.75rem;
+}
+
+.license-options {
+    padding: 0.5rem 0;
+}
+
+.license-option-btn {
+    flex-direction: column;
+    padding: 1rem 1.5rem;
+    font-size: 1.05rem;
+    text-align: center;
+}
+
+.license-option-sub {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-top: 0.25rem;
+}
+
+.license-success-box {
+    background: #eafaf1;
+    border: 1px solid #c3e6cb;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.license-key-display {
+    font-weight: 700;
+    color: #1e7e34;
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.license-key-value {
+    font-family: monospace;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--blue);
+    letter-spacing: 2px;
+    background: var(--white);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 2px solid var(--maize);
+    display: inline-block;
+    user-select: all;
+}
+
+/* ── Update Banner ───────────────────────────────────────────────────────── */
+.update-banner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0;
+}
+
+.update-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+}
+
+.update-info {
+    flex: 1;
+}
+
+.update-info strong {
+    display: block;
+    font-size: 0.95rem;
+    color: var(--blue);
+}
+
+.update-notes {
+    font-size: 0.82rem;
+    color: var(--gray-600);
+    margin-top: 0.25rem;
+    white-space: pre-line;
+}
+
+/* ── License Status Banner (in-app) ──────────────────────────────────────── */
+.license-banner {
+    background: var(--blue);
+    color: var(--maize);
+    padding: 0.35rem 1rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.3px;
+}
+
+.license-banner a {
+    color: var(--white);
+    text-decoration: underline;
+    margin-left: 0.5rem;
+}
+
+.license-banner.trial {
+    background: linear-gradient(135deg, #e65100, #ff6d00);
+}
+
+.license-banner.update {
+    background: #1e7e34;
+    color: var(--white);
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .form-row { flex-direction: column; }
     .results-nav { flex-direction: column; align-items: stretch; }
     .results-nav select { width: 100%; }
+    .update-banner { flex-direction: column; text-align: center; }
 }

@@ -36,6 +36,7 @@ a = Analysis(
         'grader.extractor',
         'grader.prompt_builder',
         'grader.session_store',
+        'grader.license_manager',
     ],
     hookspath=[],
     hooksconfig={},

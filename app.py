@@ -20,6 +20,7 @@ from grader.canvas_client import CanvasClient, CanvasError
 from grader.extractor import ExtractionError, extract_text
 from grader.prompt_builder import get_strictness_info, DEFAULT_STRICTNESS, build_rubric_generation_prompt
 from grader import session_store
+from grader.license_manager import get_license_manager, TRIAL_MAX_SESSIONS
 
 # When running as a PyInstaller bundle, resolve bundled data files correctly
 if getattr(sys, 'frozen', False):
@@ -88,11 +89,94 @@ def _cleanup_canvas_prefetch():
         del canvas_prefetch[k]
 
 
+# ── License routes ─────────────────────────────────────────────────────────────
+
+@app.route('/activate')
+def activate_page():
+    lm = get_license_manager()
+    status = lm.get_status()
+    # Show trial_expired as distinct state
+    if lm.is_trial_expired() and not lm.is_licensed():
+        status['status'] = 'trial_expired'
+        status['max_sessions'] = TRIAL_MAX_SESSIONS
+    return render_template('activate.html',
+                           license_status=status,
+                           trial_max=TRIAL_MAX_SESSIONS)
+
+
+@app.route('/api/license/status')
+def api_license_status():
+    lm = get_license_manager()
+    return jsonify(lm.get_status())
+
+
+@app.route('/api/license/start-trial', methods=['POST'])
+def api_license_start_trial():
+    lm = get_license_manager()
+    result = lm.start_trial()
+    return jsonify(result)
+
+
+@app.route('/api/license/claim', methods=['POST'])
+def api_license_claim():
+    data = request.get_json()
+    order_number = (data.get('order_number') or '').strip()
+    buyer_name = (data.get('buyer_name') or '').strip()
+    buyer_email = (data.get('buyer_email') or '').strip()
+    if not order_number or not buyer_name:
+        return jsonify({'error': 'Order number and name are required.'}), 400
+    lm = get_license_manager()
+    result = lm.claim_purchase(order_number, buyer_name, buyer_email)
+    if result.get('error'):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route('/api/license/activate', methods=['POST'])
+def api_license_activate():
+    data = request.get_json()
+    license_key = (data.get('license_key') or '').strip()
+    if not license_key:
+        return jsonify({'error': 'License key is required.'}), 400
+    lm = get_license_manager()
+    result = lm.activate_device(license_key)
+    if result.get('error'):
+        code = 403 if 'limit' in result.get('error', '').lower() else 400
+        return jsonify(result), code
+    return jsonify(result)
+
+
+@app.route('/api/license/deactivate', methods=['POST'])
+def api_license_deactivate():
+    lm = get_license_manager()
+    result = lm.deactivate_device()
+    if result.get('error'):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route('/api/license/validate', methods=['POST'])
+def api_license_validate():
+    lm = get_license_manager()
+    result = lm.validate_online()
+    return jsonify(result)
+
+
+@app.route('/api/license/check-update')
+def api_license_check_update():
+    lm = get_license_manager()
+    update = lm.check_for_updates()
+    return jsonify({'update': update})
+
+
 # ── Main routes ───────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    lm = get_license_manager()
+    if not lm.can_grade():
+        return redirect(url_for('activate_page'))
+    return render_template('index.html', license_status=lm.get_status())
 
 
 @app.route('/grade', methods=['POST'])
@@ -216,6 +300,13 @@ def grade():
 
         if not essays:
             return jsonify({'error': 'No valid submissions found in Canvas. Nothing to grade.'}), 400
+
+    # ── License check ────────────────────────────────────────────────────────
+    lm = get_license_manager()
+    if not lm.can_grade():
+        return jsonify({'error': 'License required. Please activate or start a trial.'}), 403
+    if lm.is_trial() and not lm.use_trial_session():
+        return jsonify({'error': 'Trial sessions exhausted. Please purchase a license.'}), 403
 
     # ── Create session ────────────────────────────────────────────────────────
     session_id = str(uuid.uuid4())
@@ -827,7 +918,8 @@ def generate_rubric():
 
 @app.route('/processing')
 def processing():
-    return render_template('processing.html')
+    lm = get_license_manager()
+    return render_template('processing.html', license_status=lm.get_status())
 
 
 @app.route('/grade/status')
@@ -854,7 +946,8 @@ def grade_status():
 
 @app.route('/results')
 def results():
-    return render_template('results.html')
+    lm = get_license_manager()
+    return render_template('results.html', license_status=lm.get_status())
 
 
 @app.route('/api/results')

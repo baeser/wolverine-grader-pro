@@ -95,6 +95,23 @@
             </div>
         </div>
     </div>
+    <!-- License status banner -->
+    {% if license_status %}
+        {% if license_status.status == 'trial' %}
+        <div class="license-banner trial">
+            &#128640; Trial &mdash; {{ license_status.sessions_remaining }} of {{ license_status.max_sessions }} sessions remaining
+            <a href="/activate">Activate License</a>
+        </div>
+        {% elif license_status.status == 'licensed' %}
+            {% if license_status.update %}
+            <div class="license-banner update">
+                &#128229; Update available: v{{ license_status.update.version }}
+                <a href="{{ license_status.update.download_url }}" target="_blank">Download</a>
+            </div>
+            {% endif %}
+        {% endif %}
+    {% endif %}
+
     <main>
         {% block content %}{% endblock %}
     </main>
