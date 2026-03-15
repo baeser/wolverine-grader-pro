@@ -9,3 +9,5 @@ saved_sessions/
 venv/
 .env
 *.dmg
+node_modules/
+.wgp_data/
