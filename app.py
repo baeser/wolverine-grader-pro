@@ -54,7 +54,7 @@ def _get_session(session_id):
     sessions[session_id] = {
         'status':           'complete',
         'essays':           save_data.get('essays', []),
-        'rubric':           '',
+        'rubric':           save_data.get('rubric', ''),
         'strictness':       save_data.get('strictness', DEFAULT_STRICTNESS),
         'strictness_label': save_data.get('strictness_label', ''),
         'strictness_emoji': save_data.get('strictness_emoji', ''),
@@ -686,6 +686,7 @@ def api_session_save():
         'strictness':      sess.get('strictness', DEFAULT_STRICTNESS),
         'strictness_label': sess.get('strictness_label', ''),
         'strictness_emoji': sess.get('strictness_emoji', ''),
+        'rubric':          sess.get('rubric', ''),
         'canvas_enabled':  sess.get('canvas_enabled', False),
         'canvas_url':      sess.get('canvas_url', ''),
         # canvas_token intentionally excluded — never write tokens to disk
@@ -725,7 +726,7 @@ def api_session_load(session_id):
     sessions[session_id] = {
         'status':           'complete',
         'essays':           save_data.get('essays', []),
-        'rubric':           '',
+        'rubric':           save_data.get('rubric', ''),
         'strictness':       save_data.get('strictness', DEFAULT_STRICTNESS),
         'strictness_label': save_data.get('strictness_label', ''),
         'strictness_emoji': save_data.get('strictness_emoji', ''),
