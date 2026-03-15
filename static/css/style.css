@@ -27,12 +27,16 @@ body {
 }
 
 header {
-    background: var(--blue);
+    background: #020643;
     color: var(--maize);
-    padding: 1.5rem 2rem 1rem;
+    padding: 0.3rem 2rem;
     text-align: center;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     position: relative;
+    max-width: 900px;
+    margin: 0 auto;
+    border-radius: 0 0 16px 16px;
+    width: 100%;
 }
 
 .help-btn {
@@ -40,12 +44,12 @@ header {
     top: 1.25rem;
     right: 1.5rem;
     background: rgba(255,203,5,0.15);
-    border: 1.5px solid var(--maize);
+    border: 2px solid var(--maize);
     color: var(--maize);
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 0.35rem 0.8rem;
-    border-radius: 20px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    padding: 0.55rem 1.2rem;
+    border-radius: 24px;
     cursor: pointer;
     letter-spacing: 0.3px;
     transition: background 0.15s, color 0.15s;
@@ -65,15 +69,15 @@ header {
 }
 
 .header-logo {
-    height: 64px;
+    height: 240px;
     width: auto;
-    border-radius: 10px;
-    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
+    border-radius: 14px;
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,0.35));
 }
 
 @media (max-width: 600px) {
-    .header-logo { height: 48px; }
-    .header-logo-row { gap: 0.6rem; }
+    .header-logo { height: 80px; }
+    .header-logo-row { gap: 0.75rem; }
 }
 
 /* ── Setup Modal ────────────────────────────────────────────────────────────── */

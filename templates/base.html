@@ -10,11 +10,7 @@
     <header>
         <div class="header-content">
             <div class="header-logo-row">
-                <img src="{{ url_for('static', filename='wolverinegraderpro-logo.png') }}" alt="Wolverine Grader Pro" class="header-logo">
-                <div>
-                    <h1>Wolverine Grader Pro 3.0</h1>
-                    <p class="subtitle">AI-Powered Essay Grading Assistant</p>
-                </div>
+                <img src="{{ url_for('static', filename='wolverinegraderprobig-logo.png') }}" alt="Wolverine Grader Pro" class="header-logo">
             </div>
         </div>
         <button class="help-btn" onclick="document.getElementById('setupModal').classList.add('open')" title="Setup Instructions">
@@ -104,10 +100,10 @@
     </main>
     <footer>
         <p>Wolverine Grader Pro 3.0 &mdash; Grades are AI-generated suggestions. Always review before submitting.</p>
-        <div class="footer-brand">
+        <a href="https://www.treetown.ai" target="_blank" class="footer-brand" style="text-decoration:none; cursor:pointer;">
             <span class="footer-powered">Powered by</span>
             <img src="{{ url_for('static', filename='TreetownAILogoNewest.png') }}" alt="Treetown AI" class="footer-logo">
-        </div>
+        </a>
     </footer>
     {% block scripts %}{% endblock %}
 </body>
