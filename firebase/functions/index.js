@@ -23,10 +23,9 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Set these with: firebase functions:config:set license.jwt_secret="YOUR_SECRET" license.admin_key="YOUR_ADMIN_KEY"
-// Or use environment variables in Firebase Gen2
-const JWT_SECRET = process.env.JWT_SECRET || functions.config().license?.jwt_secret || "CHANGE_ME_IN_PRODUCTION";
-const ADMIN_KEY = process.env.ADMIN_KEY || functions.config().license?.admin_key || "CHANGE_ME_ADMIN_KEY";
+// Secrets are loaded from functions/.env (deployed automatically with Firebase)
+const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME_IN_PRODUCTION";
+const ADMIN_KEY = process.env.ADMIN_KEY || "CHANGE_ME_ADMIN_KEY";
 const TOKEN_EXPIRY_DAYS = 7; // Offline grace period
 const DEFAULT_MAX_DEVICES = 2;
 const PRODUCT_ID = "wolverine-grader-pro";

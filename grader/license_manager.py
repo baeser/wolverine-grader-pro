@@ -44,10 +44,10 @@ KEYCHAIN_ACCOUNT_KEY = 'license-key'
 TRIAL_MAX_SESSIONS = 5
 OFFLINE_GRACE_DAYS = 7
 
-# License server URL — update this after deploying Firebase
+# License server URL (Firebase function is exported as 'api', routes are under /api/)
 LICENSE_SERVER_URL = os.environ.get(
     'WGP_LICENSE_SERVER',
-    'https://us-central1-wolverine-grader-pro.cloudfunctions.net/api'
+    'https://us-central1-wolverine-grader-pro.cloudfunctions.net/api/api'
 )
 
 
