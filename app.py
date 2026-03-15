@@ -625,6 +625,10 @@ def canvas_push_grade():
             score=canvas_score,
             comment=feedback,
         )
+        # Track push status server-side so it persists across saves
+        if 'push_status' not in sess:
+            sess['push_status'] = {}
+        sess['push_status'][str(idx)] = 'pushed'
         return jsonify({'success': True, 'canvas_score': canvas_score})
     except CanvasError as e:
         return jsonify({'error': str(e)}), 400
@@ -650,6 +654,7 @@ def api_session_save():
     edited_scores    = data.get('edited_scores', {})
     # Per-level feedback: { "1": { "0": "text" }, "2": { "0": "text" }, "3": { "0": "text" } }
     edited_feedbacks = data.get('edited_feedbacks', {})
+    push_status      = data.get('push_status', {})
 
     sess = _get_session(session_id)
     if not sess:
@@ -693,6 +698,7 @@ def api_session_save():
         'total':           sess.get('total', 0),
         'results':         merged,
         'essays':          saved_essays,
+        'push_status':     push_status,
     }
 
     try:
@@ -743,6 +749,8 @@ def api_session_load(session_id):
         'canvas_course_id':     None,
         'canvas_assignment_id': None,
         'canvas_points_possible': None,
+        # Restore which students have already been pushed to Canvas
+        'push_status':      save_data.get('push_status', {}),
     }
 
     return jsonify({
@@ -868,6 +876,7 @@ def api_results():
         'canvas_enabled': sess.get('canvas_enabled', False),
         'canvas_url': sess.get('canvas_url', ''),
         'canvas_points_possible': sess.get('canvas_points_possible'),
+        'push_status': sess.get('push_status', {}),
     })
 
 

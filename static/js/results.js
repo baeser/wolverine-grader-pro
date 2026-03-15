@@ -35,6 +35,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         canvasEnabled = !!data.canvas_enabled;
         canvasPointsPossible = data.canvas_points_possible || null;
 
+        // Restore push status from saved session data (if any)
+        if (data.push_status) {
+            for (const [k, v] of Object.entries(data.push_status)) {
+                pushStatus[k] = v;
+            }
+        }
+
         // Restore per-level feedback edits from saved session data (if any)
         results.forEach((r, i) => {
             if (r.edited_feedbacks) {
@@ -77,12 +84,22 @@ document.addEventListener('DOMContentLoaded', async function () {
 
 function buildDropdown() {
     const select = document.getElementById('essaySelect');
+    const prevValue = select.value;
+    select.innerHTML = '';
     results.forEach((r, i) => {
         const opt = document.createElement('option');
         opt.value = i;
-        opt.textContent = `${i + 1}. ${r.filename}${r.error ? ' (error)' : ''}`;
+        const pushed = pushStatus[i] === 'pushed';
+        const indicator = pushed ? ' ✅' : '';
+        opt.textContent = `${i + 1}. ${r.filename}${r.error ? ' (error)' : ''}${indicator}`;
         select.appendChild(opt);
     });
+    select.value = prevValue || 0;
+}
+
+/** Rebuild the dropdown to reflect updated push status indicators. */
+function refreshDropdown() {
+    buildDropdown();
 }
 
 function showResult(idx) {
@@ -235,6 +252,12 @@ async function autoSave() {
     if (!sessionId || results.length === 0) return;
     saveCurrent(); // capture whatever is currently in the UI
 
+    // Build a clean copy of push_status (only 'pushed' states matter for persistence)
+    const persistedPushStatus = {};
+    for (const [k, v] of Object.entries(pushStatus)) {
+        if (v === 'pushed') persistedPushStatus[k] = 'pushed';
+    }
+
     const payload = {
         session_id: sessionId,
         edited_scores: editedScores,
@@ -243,6 +266,7 @@ async function autoSave() {
             '2': feedbackByLevel[2],
             '3': feedbackByLevel[3],
         },
+        push_status: persistedPushStatus,
     };
 
     // Skip the network call if nothing has changed since last save
@@ -370,6 +394,7 @@ async function pushToCanvas(idx) {
     }
 
     renderPushButton(idx);
+    refreshDropdown();
 }
 
 // ─── Re-Grade ─────────────────────────────────────────────────────────
@@ -538,8 +563,9 @@ async function executePushAll() {
         ? '\u2705 All Pushed!'
         : '\u2622\ufe0f Retry Failed';
 
-    // Re-render current student's push button
+    // Re-render current student's push button and dropdown indicators
     renderPushButton(currentIndex);
+    refreshDropdown();
 
     // Toast
     const toast = document.getElementById('copyToast');
