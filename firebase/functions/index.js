@@ -88,6 +88,13 @@ app.post("/api/claim-purchase", async (req, res) => {
     }
 
     const cleanOrder = String(orderNumber).trim();
+
+    // TPT order numbers are 9-digit numbers
+    if (!/^\d{9}$/.test(cleanOrder)) {
+      return res.status(400).json({
+        error: "Invalid order number. TPT order numbers are 9 digits (e.g. 123456789). You can find this on your TPT receipt email.",
+      });
+    }
     const cleanName = String(buyerName).trim();
     const cleanEmail = buyerEmail ? String(buyerEmail).trim().toLowerCase() : "";
 

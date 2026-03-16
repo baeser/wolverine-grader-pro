@@ -51,7 +51,7 @@
     {% else %}
     <div class="license-welcome-box">
         <h2>Welcome to Wolverine Grader Pro</h2>
-        <p>AI-powered essay grading for teachers.</p>
+        <p>AI-powered grading for teachers.</p>
     </div>
     {% endif %}
 </div>
@@ -132,18 +132,29 @@
     </button>
 </div>
 
-<!-- Update Banner (shown when update is available) -->
-{% if license_status.update %}
+<!-- Help Button -->
+<div class="card" id="helpCard" style="text-align:center; padding:1rem 1.5rem;">
+    <p style="margin:0 0 0.5rem 0; color:var(--gray-600); font-size:0.9rem;">Having trouble activating?</p>
+    <a href="mailto:ryan@treetown.ai?subject=Wolverine%20Grader%20Pro%20%E2%80%94%20Activation%20Help&body=Hi%20Ryan%2C%0A%0AI%20need%20help%20activating%20Wolverine%20Grader%20Pro.%0A%0AMy%20TPT%20order%20number%3A%20%0AMy%20name%3A%20%0A%0APlease%20describe%20the%20issue%3A%0A"
+       class="btn btn-sm btn-secondary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+        &#9993; Contact Support &mdash; ryan@treetown.ai
+    </a>
+</div>
+
+<!-- Update Banner — only shown when a download URL is actually configured -->
+{% if license_status.update and license_status.update.download_url %}
 <div class="card" id="updateCard">
     <div class="update-banner">
         <div class="update-icon">&#128229;</div>
         <div class="update-info">
-            <strong>Version {{ license_status.update.version }} is available</strong>
+            <strong>Update available (v{{ license_status.update.version }})</strong>
             {% if license_status.update.release_notes %}
             <p class="update-notes">{{ license_status.update.release_notes }}</p>
             {% endif %}
+            <p style="margin-top:0.25rem; font-size:0.8rem; color:var(--gray-500);">
+                Contact ryan@treetown.ai for the latest version.
+            </p>
         </div>
-        <a href="{{ license_status.update.download_url }}" target="_blank" class="btn btn-sm btn-success">Download</a>
     </div>
 </div>
 {% endif %}

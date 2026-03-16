@@ -13,10 +13,58 @@
                 <img src="{{ url_for('static', filename='wolverinegraderprobig-logo.png') }}" alt="Wolverine Grader Pro" class="header-logo">
             </div>
         </div>
-        <button class="help-btn" onclick="document.getElementById('setupModal').classList.add('open')" title="Setup Instructions">
-            &#128218; How It Works
-        </button>
+        <div style="position:absolute; top:1.25rem; right:1.5rem; display:flex; flex-direction:column; gap:0.5rem; align-items:flex-end;">
+            {% if license_status and license_status.status == 'licensed' %}
+            <button class="help-btn" style="position:static;" onclick="document.getElementById('licenseModal').classList.add('open')" title="License Info">
+                &#128273; License
+            </button>
+            {% endif %}
+            <button class="help-btn" style="position:static;" onclick="document.getElementById('setupModal').classList.add('open')" title="Setup Instructions">
+                &#128218; How It Works
+            </button>
+        </div>
     </header>
+
+    <!-- License Modal -->
+    {% if license_status and license_status.status == 'licensed' %}
+    <div class="modal-backdrop" id="licenseModal" onclick="if(event.target===this)this.classList.remove('open')">
+        <div class="modal-box" style="max-width:420px;">
+            <div class="modal-header">
+                <h2>&#128273; Your License</h2>
+                <button class="modal-close" onclick="document.getElementById('licenseModal').classList.remove('open')">&times;</button>
+            </div>
+            <div class="modal-body" style="text-align:center; padding:1.5rem;">
+                <p style="margin-bottom:0.25rem; color:var(--gray-600);">Licensed to</p>
+                <p style="font-weight:700; font-size:1.1rem; margin-bottom:1.25rem;">{{ license_status.licensed_to }}</p>
+                <p style="margin-bottom:0.5rem; color:var(--gray-600); font-size:0.9rem;">License Key</p>
+                <div style="font-family:monospace; font-size:1.15rem; letter-spacing:2px; font-weight:bold;
+                            padding:0.75rem; background:var(--gray-100,#f3f4f6); border-radius:8px;
+                            margin-bottom:0.75rem; user-select:all;">{{ license_status.license_key }}</div>
+                <button class="btn btn-sm btn-secondary" style="margin-bottom:1.5rem;"
+                    onclick="navigator.clipboard.writeText('{{ license_status.license_key }}').then(() => { this.innerHTML = '&#10003; Copied!'; setTimeout(() => { this.innerHTML = '&#128203; Copy Key'; }, 2000); })">
+                    &#128203; Copy Key
+                </button>
+                <p style="font-size:0.85rem; color:var(--gray-600); margin-bottom:1.5rem;">Up to {{ license_status.max_devices }} devices</p>
+                <hr style="border:none; border-top:1px solid var(--gray-200,#e5e7eb); margin-bottom:1.25rem;">
+                <button class="btn btn-sm btn-secondary" onclick="deactivateFromModal()">
+                    Deactivate This Device
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+    function deactivateFromModal() {
+        if (!confirm('Deactivate this device? You can re-activate later with your license key.')) return;
+        fetch('/api/license/deactivate', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) window.location.href = '/activate';
+                else alert(data.error || 'Could not deactivate. Please try again.');
+            })
+            .catch(() => alert('Network error. Please try again.'));
+    }
+    </script>
+    {% endif %}
 
     <!-- Setup Instructions Modal -->
     <div class="modal-backdrop" id="setupModal" onclick="if(event.target===this)this.classList.remove('open')">
@@ -103,10 +151,9 @@
             <a href="/activate">Activate License</a>
         </div>
         {% elif license_status.status == 'licensed' %}
-            {% if license_status.update %}
+            {% if license_status.update and license_status.update.download_url %}
             <div class="license-banner update">
-                &#128229; Update available: v{{ license_status.update.version }}
-                <a href="{{ license_status.update.download_url }}" target="_blank">Download</a>
+                &#128229; Update available (v{{ license_status.update.version }}) &mdash; Contact ryan@treetown.ai for the latest version.
             </div>
             {% endif %}
         {% endif %}
@@ -116,7 +163,7 @@
         {% block content %}{% endblock %}
     </main>
     <footer>
-        <p>Wolverine Grader Pro 3.0 &mdash; Grades are AI-generated suggestions. Always review before submitting.</p>
+        <p>Wolverine Grader Pro {{ license_status.app_version or '3.0.0' }} &mdash; Grades are AI-generated suggestions. Always review before submitting.</p>
         <a href="https://www.treetown.ai" target="_blank" class="footer-brand" style="text-decoration:none; cursor:pointer;">
             <span class="footer-powered">Powered by</span>
             <img src="{{ url_for('static', filename='TreetownAILogoNewest.png') }}" alt="Treetown AI" class="footer-logo">

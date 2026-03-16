@@ -11,10 +11,11 @@ set -euo pipefail
 
 APP_NAME="Wolverine Grader Pro"
 APP_PATH="dist/${APP_NAME}.app"
-DMG_NAME="WolverineGraderPro-3.0"
+VERSION=$(cat VERSION | tr -d '[:space:]')
+DMG_NAME="WolverineGraderPro-${VERSION}"
 DMG_TEMP="dist/${DMG_NAME}-temp.dmg"
 DMG_FINAL="dist/${DMG_NAME}.dmg"
-VOL_NAME="Wolverine Grader Pro 3.0"
+VOL_NAME="Wolverine Grader Pro ${VERSION}"
 DMG_SIZE="500m"
 
 # Change to script directory

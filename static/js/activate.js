@@ -61,6 +61,11 @@ async function claimPurchase() {
         errDiv.style.display = 'block';
         return;
     }
+    if (!/^\d{9}$/.test(orderNumber)) {
+        errDiv.textContent = 'TPT order numbers are 9 digits (e.g. 123456789). Check your TPT receipt email for your order number.';
+        errDiv.style.display = 'block';
+        return;
+    }
     if (!buyerName) {
         errDiv.textContent = 'Please enter the name on your receipt.';
         errDiv.style.display = 'block';
@@ -85,16 +90,21 @@ async function claimPurchase() {
             const key = data.licenseKey || data.license_key;
             successDiv.innerHTML = `
                 <div class="license-key-display">\u2705 Your License Key</div>
-                <div class="license-key-value">${key}</div>
+                <div class="license-key-value" style="font-family:monospace; font-size:1.3rem; letter-spacing:2px; font-weight:bold; padding:0.75rem; background:var(--gray-100,#f3f4f6); border-radius:8px; margin:0.75rem 0; user-select:all;">${key}</div>
                 <p style="margin-top:0.5rem; font-size:0.85rem; color:var(--gray-600);">
                     ${data.alreadyClaimed ? 'This order was already claimed.' : 'Save this key for your records.'}
                 </p>
+                <button class="btn btn-sm btn-secondary" style="margin-top:0.75rem;" onclick="navigator.clipboard.writeText('${key}').then(function(){this.innerHTML='\u2705 Copied!';}.bind(this))">
+                    \uD83D\uDCCB Copy Key to Clipboard
+                </button>
+                <button class="btn btn-primary btn-block" style="margin-top:1rem; font-size:1.05rem;" onclick="document.getElementById('licenseKeyInput').value='${key}';activateKey();">
+                    Activate &amp; Continue \u2192
+                </button>
             `;
             successDiv.style.display = 'block';
 
-            // Auto-activate with the new key
+            // Pre-fill the key but let the user copy it first
             document.getElementById('licenseKeyInput').value = key;
-            setTimeout(() => activateKey(), 500);
         }
     } catch (err) {
         errDiv.textContent = 'Network error. Please try again.';
@@ -141,8 +151,25 @@ async function activateKey() {
                     data.activeDevices.map(d => `<li>${d}</li>`).join('') + '</ul>';
             }
         } else if (data.success) {
-            // Activation successful — redirect to main app
-            window.location.href = '/?activated=1';
+            // Activation successful — show key so user can copy it before continuing
+            const activateCard = document.getElementById('activateCard');
+            activateCard.innerHTML = `
+                <div style="text-align:center; padding:0.5rem 0;">
+                    <div style="font-size:2.5rem; margin-bottom:0.5rem;">✅</div>
+                    <h2 style="margin-bottom:0.25rem;">Activated!</h2>
+                    <p style="color:var(--gray-600); margin-bottom:1.25rem;">Save your license key for your records.</p>
+                    <div style="font-family:monospace; font-size:1.3rem; letter-spacing:2px; font-weight:bold;
+                                padding:0.75rem; background:var(--gray-100,#f3f4f6); border-radius:8px;
+                                margin-bottom:0.75rem; user-select:all;">${licenseKey}</div>
+                    <button class="btn btn-sm btn-secondary" style="margin-bottom:1.25rem;"
+                        onclick="navigator.clipboard.writeText('${licenseKey}').then(() => { this.innerHTML = '✅ Copied!'; })">
+                        📋 Copy Key to Clipboard
+                    </button>
+                    <a href="/?activated=1" class="btn btn-primary btn-block" style="font-size:1.05rem;">
+                        Continue to App →
+                    </a>
+                </div>
+            `;
         }
     } catch (err) {
         errDiv.textContent = 'Network error. Please check your internet connection.';

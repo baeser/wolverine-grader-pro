@@ -18,6 +18,7 @@ a = Analysis(
         (os.path.join(ROOT, 'config.py'), '.'),
         (os.path.join(ROOT, 'grader'), 'grader'),
         (os.path.join(ROOT, 'TreetownAILogoNewest.png'), '.'),
+        (os.path.join(ROOT, 'VERSION'), '.'),
     ],
     hiddenimports=[
         'flask',
@@ -37,6 +38,7 @@ a = Analysis(
         'grader.prompt_builder',
         'grader.session_store',
         'grader.license_manager',
+        'certifi',
     ],
     hookspath=[],
     hooksconfig={},
@@ -82,8 +84,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'Wolverine Grader Pro',
         'CFBundleDisplayName': 'Wolverine Grader Pro',
-        'CFBundleVersion': '3.0.0',
-        'CFBundleShortVersionString': '3.0',
+        'CFBundleVersion': '3.1.0',
+        'CFBundleShortVersionString': '3.1',
         'NSHighResolutionCapable': True,
     },
 )

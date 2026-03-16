@@ -12,11 +12,21 @@ import hashlib
 import json
 import os
 import platform
+import ssl
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+
+# Build an SSL context that works inside PyInstaller bundles.
+# The bundled Python can't find the system certificate store on macOS,
+# so we use certifi's CA bundle instead.
+try:
+    import certifi
+    _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    _SSL_CONTEXT = ssl.create_default_context()
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 if getattr(sys, 'frozen', False):
@@ -36,7 +46,20 @@ LICENSE_FILE = os.path.join(LICENSE_DIR, 'license.json')
 TRIAL_FILE = os.path.join(LICENSE_DIR, 'trial.json')
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-APP_VERSION = '3.0.0'
+def _read_version():
+    """Read version from VERSION file (works both frozen and dev)."""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+    version_file = os.path.join(base, 'VERSION')
+    try:
+        with open(version_file) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return '3.0.0'
+
+APP_VERSION = _read_version()
 PRODUCT_ID = 'wolverine-grader-pro'
 KEYCHAIN_SERVICE = 'WolverineGraderPro'
 KEYCHAIN_ACCOUNT_TOKEN = 'license-token'
@@ -213,7 +236,7 @@ def _api_request(endpoint: str, payload: dict, timeout: int = 15) -> dict:
         method='POST'
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
             return json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8', errors='replace')
@@ -472,12 +495,21 @@ class LicenseManager:
 
     # ── Update Info ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_version(v: str):
+        """Parse '3.1.0' into a tuple (3, 1, 0) for proper comparison."""
+        try:
+            return tuple(int(x) for x in v.split('.'))
+        except (ValueError, AttributeError):
+            return (0,)
+
     def get_update_info(self) -> dict | None:
-        """Return update info if a newer version is available."""
+        """Return update info only if a newer version is available AND a download URL is configured."""
         if not self._update_info:
             return None
         latest = self._update_info.get('version', '')
-        if latest and latest != APP_VERSION and latest > APP_VERSION:
+        download_url = self._update_info.get('download_url', '')
+        if latest and download_url and self._parse_version(latest) > self._parse_version(APP_VERSION):
             return self._update_info
         return None
 

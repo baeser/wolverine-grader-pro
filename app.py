@@ -1238,11 +1238,67 @@ def api_essay_text(idx):
     return jsonify({'filename': essay.get('filename', ''), 'text': text})
 
 
+def _kill_stale_instances(port: int):
+    """Kill any previous Wolverine Grader Pro processes before starting.
+
+    Handles the case where a user opens a new build while an old one is still
+    running — the old server would keep serving stale pages on the same port.
+    """
+    import signal, re, subprocess
+
+    my_pid = os.getpid()
+
+    # Strategy 1: Kill anything holding our port
+    try:
+        result = subprocess.run(
+            ['lsof', '-ti', f':{port}'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for pid_str in result.stdout.strip().splitlines():
+                try:
+                    pid = int(pid_str.strip())
+                    if pid != my_pid:
+                        print(f"  ⚠ Killing stale process on port {port} (PID {pid})")
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, ProcessLookupError, PermissionError):
+                    pass
+    except Exception:
+        pass
+
+    # Strategy 2: Kill any other WolverineGraderPro processes (catches ones on
+    # different ports or stuck in startup)
+    try:
+        result = subprocess.run(
+            ['pgrep', '-f', 'WolverineGraderPro'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for pid_str in result.stdout.strip().splitlines():
+                try:
+                    pid = int(pid_str.strip())
+                    if pid != my_pid:
+                        print(f"  ⚠ Killing stale WolverineGraderPro process (PID {pid})")
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, ProcessLookupError, PermissionError):
+                    pass
+    except Exception:
+        pass
+
+    # Brief pause so the OS releases the port
+    time.sleep(0.5)
+
+
 if __name__ == '__main__':
-    import webbrowser, threading
+    import webbrowser, subprocess
     port = int(os.environ.get('PORT', 5050))
-    print("\n  Wolverine Grader Pro 3.0")
-    print(f"  Open http://127.0.0.1:{port} in your browser\n")
+
+    from grader.license_manager import APP_VERSION
+    print(f"\n  Wolverine Grader Pro {APP_VERSION}")
+    print(f"  Checking for stale instances...")
+    _kill_stale_instances(port)
+
+    print(f"  Starting server on http://127.0.0.1:{port}\n")
     # Auto-open the browser after a short delay so the server is ready
     threading.Timer(1.2, lambda: webbrowser.open(f'http://127.0.0.1:{port}')).start()
     app.run(host='127.0.0.1', debug=False, port=port, threaded=True)
