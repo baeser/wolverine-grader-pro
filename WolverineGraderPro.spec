@@ -33,6 +33,8 @@ a = Analysis(
         'config',
         'grader',
         'grader.ai_client',
+        'grader.batch_client',
+        'grader.batch_store',
         'grader.canvas_client',
         'grader.extractor',
         'grader.prompt_builder',

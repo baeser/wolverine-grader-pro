@@ -616,6 +616,132 @@ async function executePushAll() {
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────
+// ─── AI Consistency Review ───────────────────────────────────────────────────
+let reviewData = null;
+
+async function reviewScores() {
+    const provider = localStorage.getItem('wgp_provider') || '';
+    const apiKey = localStorage.getItem('wgp_api_key') || '';
+
+    if (!provider || !apiKey) {
+        alert('API key not found. Please go to the home page and enter your key.');
+        return;
+    }
+
+    const btn = document.getElementById('reviewBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Reviewing...';
+
+    try {
+        const resp = await fetch('/api/review-scores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                provider: provider,
+                api_key: apiKey,
+            }),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            alert(data.error || 'Review failed.');
+            btn.disabled = false;
+            btn.textContent = '🔍 Review Scores for Consistency';
+            return;
+        }
+
+        reviewData = data.review;
+        renderReview(data.review, data.review_model_label);
+
+        btn.textContent = '🔍 Review Again';
+        btn.disabled = false;
+    } catch (err) {
+        alert('Network error during review.');
+        btn.disabled = false;
+        btn.textContent = '🔍 Review Scores for Consistency';
+    }
+}
+
+function renderReview(review, modelLabel) {
+    const panel = document.getElementById('reviewPanel');
+    const assessmentEl = document.getElementById('reviewAssessment');
+    const flagsEl = document.getElementById('reviewFlags');
+    const badgeEl = document.getElementById('reviewModelBadge');
+
+    badgeEl.textContent = `Reviewed by ${modelLabel || 'AI'}`;
+    assessmentEl.textContent = review.overall_assessment || 'No assessment provided.';
+
+    const flags = (review.flags || []).filter(f => f.flag !== 'ok');
+
+    if (flags.length === 0) {
+        flagsEl.innerHTML = '<p style="color: #2e7d32; font-weight: 600; text-align: center; margin: 1rem 0;">✅ All scores look consistent. No outliers detected.</p>';
+    } else {
+        let html = '<table class="review-table"><thead><tr>'
+            + '<th>Student</th><th>Original</th><th>Suggested</th><th>Flag</th><th>Rationale</th><th>Action</th>'
+            + '</tr></thead><tbody>';
+
+        for (const f of flags) {
+            const flagEmoji = { high: '🔴 High', low: '🔵 Low', inconsistent: '🟡 Inconsistent' }[f.flag] || f.flag;
+            const maxScore = results[f.idx]?.max_score || 100;
+            html += `<tr id="review-row-${f.idx}">`
+                + `<td>${escapeHtml(f.filename)}</td>`
+                + `<td>${f.original_score}/${maxScore}</td>`
+                + `<td><strong>${f.suggested_score}/${maxScore}</strong></td>`
+                + `<td><span class="review-flag review-flag-${f.flag}">${flagEmoji}</span></td>`
+                + `<td style="font-size: 0.82rem;">${escapeHtml(f.rationale)}</td>`
+                + `<td>`
+                + `<button class="btn btn-sm btn-primary" onclick="acceptSuggestion(${f.idx}, ${f.suggested_score})" style="margin-right: 0.3rem;">Accept</button>`
+                + `<button class="btn btn-sm btn-secondary" onclick="dismissFlag(${f.idx})">Dismiss</button>`
+                + `</td>`
+                + `</tr>`;
+        }
+        html += '</tbody></table>';
+        flagsEl.innerHTML = html;
+    }
+
+    // Update dropdown with flag indicators
+    const select = document.getElementById('essaySelect');
+    for (const f of flags) {
+        const opt = select.options[f.idx];
+        if (opt && !opt.text.includes('⚠')) {
+            opt.text = '⚠ ' + opt.text;
+        }
+    }
+
+    panel.style.display = 'block';
+}
+
+function acceptSuggestion(idx, suggestedScore) {
+    editedScores[idx] = suggestedScore;
+    showResult(idx);
+    // Remove the row from the review table
+    const row = document.getElementById(`review-row-${idx}`);
+    if (row) row.style.opacity = '0.4';
+    // Remove flag from dropdown
+    const select = document.getElementById('essaySelect');
+    if (select.options[idx]) {
+        select.options[idx].text = select.options[idx].text.replace('⚠ ', '✓ ');
+    }
+}
+
+function dismissFlag(idx) {
+    const row = document.getElementById(`review-row-${idx}`);
+    if (row) row.remove();
+    // Remove flag from dropdown
+    const select = document.getElementById('essaySelect');
+    if (select.options[idx]) {
+        select.options[idx].text = select.options[idx].text.replace('⚠ ', '');
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ─── Export ─────────────────────────────────────────────────────────────────
 function exportCSV() {
     saveCurrent();
     let csv = 'Filename,Score,Max Score,Feedback\n';

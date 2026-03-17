@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card" id="batchCard" style="text-align: center;">
+    <h2>⏳ Batch Grading Submitted</h2>
+    <p style="color: var(--gray-600); margin: 0.5rem 0 1rem;">
+        Your essays are being graded via the Batch API at <strong>50% cost savings</strong>.
+        Results typically arrive in minutes, but may take up to 24 hours.
+    </p>
+
+    <div class="progress-container" style="margin: 1.5rem 0;">
+        <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="batchProgressBar" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div id="batchStatus" style="font-weight: 600; color: var(--blue); font-size: 1.1rem; margin: 1rem 0;">
+        Checking for results...
+    </div>
+
+    <div id="batchInfo" style="font-size: 0.85rem; color: var(--gray-600); margin: 0.5rem 0;">
+        <span id="batchTotal"></span> submissions &middot; Checking every 30 seconds
+    </div>
+
+    <div id="batchError" class="alert alert-error" style="display: none; margin: 1rem 0;"></div>
+
+    <div style="margin-top: 1.5rem;">
+        <p style="font-size: 0.82rem; color: var(--gray-500);">
+            You can close this page and check back later &mdash; your session is saved.
+            <br>Look for it in <strong>Load Previous Session</strong> on the home page.
+        </p>
+    </div>
+
+    <div style="margin-top: 1rem;">
+        <a href="/" class="btn btn-secondary">← Back to Home</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/batch_pending.js') }}"></script>
+{% endblock %}

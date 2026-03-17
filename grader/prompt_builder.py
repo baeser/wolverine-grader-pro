@@ -246,6 +246,89 @@ def build_quiz_message(student_name: str, answers: list) -> str:
     return "\n".join(parts)
 
 
+def build_review_prompt(rubric: str, all_results: list,
+                        grading_mode: str = 'essay') -> tuple:
+    """Build system + user prompts for the consistency review.
+
+    Returns (system_prompt, user_message).
+    all_results: list of graded result dicts from the session.
+    """
+    system_prompt = """You are an expert academic grading auditor performing a consistency review.
+
+You have been given a rubric and the AI-generated scores and feedback for ALL students in a grading batch.
+
+Your job is to review the EXISTING grades for internal consistency. Do NOT re-grade from scratch.
+
+Check for:
+1. SCORE CONSISTENCY — Similar quality answers should receive similar scores. Look for students with comparable feedback but significantly different scores.
+2. FEEDBACK-SCORE ALIGNMENT — The score should match the tone and content of the feedback. Flag cases where glowing feedback accompanies a low score, or harsh feedback accompanies a high score.
+3. OUTLIERS — Scores that are unusually high or low compared to peers with similar-quality work.
+4. SCORING DRIFT — Scores that trend higher or lower as the batch progresses (first students graded differently than last students).
+
+For each flagged student, suggest a corrected score and explain your reasoning.
+
+You MUST respond in EXACTLY this JSON format:
+{
+  "overall_assessment": "<2-3 sentence summary of batch consistency — note any patterns>",
+  "flags": [
+    {
+      "idx": <integer index of the student in the results array>,
+      "filename": "<student name/filename>",
+      "original_score": <number>,
+      "suggested_score": <number>,
+      "flag": "<one of: ok, low, high, inconsistent>",
+      "rationale": "<1-2 sentence explanation>"
+    }
+  ]
+}
+
+Only include students that need attention in the flags array. If all scores look consistent, return an empty flags array. The "flag" field means:
+- "high" — score appears too high relative to feedback quality or peer comparison
+- "low" — score appears too low relative to feedback quality or peer comparison
+- "inconsistent" — score and feedback contradict each other
+- "ok" — included for reference but no change needed
+
+Do not include any text outside the JSON object."""
+
+    # Build compact student results summary
+    parts = [f"RUBRIC:\n{rubric}\n"]
+    parts.append(f"GRADING MODE: {'Quiz' if grading_mode == 'quiz' else 'Essay'}")
+    parts.append(f"TOTAL STUDENTS: {len(all_results)}\n")
+    parts.append("STUDENT RESULTS:")
+
+    for i, r in enumerate(all_results):
+        if r.get('error'):
+            continue  # skip errored results
+
+        name = r.get('filename', f'Student {i}')
+        score = r.get('score', 0)
+        max_score = r.get('max_score', 100)
+
+        # Truncate summary for token efficiency
+        summary = (r.get('summary') or '')[:200]
+
+        line = f"\n[{i}] {name}: {score}/{max_score}"
+
+        if grading_mode == 'quiz' and r.get('questions'):
+            q_scores = ', '.join(
+                f"Q{j+1}: {q['earned']}/{q['possible']}"
+                for j, q in enumerate(r['questions'])
+            )
+            line += f"\n  Questions: {q_scores}"
+        elif r.get('categories'):
+            cat_scores = ', '.join(
+                f"{c['name']}: {c['earned']}/{c['possible']}"
+                for c in r['categories']
+            )
+            line += f"\n  Categories: {cat_scores}"
+
+        line += f"\n  Feedback: {summary}"
+        parts.append(line)
+
+    user_message = "\n".join(parts)
+    return (system_prompt, user_message)
+
+
 def build_rubric_generation_prompt(description: str) -> str:
     return f"""You are an expert curriculum designer and educator. A teacher has described what they want in a grading rubric. Generate a clear, detailed, ready-to-use rubric based on their description.
 

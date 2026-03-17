@@ -1127,6 +1127,47 @@ input[type="file"] {
 .quiz-q-pts  { font-size: 0.75rem; color: var(--gray-600); white-space: nowrap; }
 .quiz-q-text { flex: 1; color: var(--gray-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── AI Review ────────────────────────────────────────────────────────────── */
+.btn-review {
+    width: 100%; background: var(--blue-lighter); color: #fff; padding: 0.65rem 1rem;
+    border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.95rem;
+}
+.btn-review:hover { background: var(--blue); }
+
+.review-panel {
+    margin-top: 1rem; border: 2px solid var(--blue-lighter); border-radius: 10px;
+}
+.review-header {
+    display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;
+}
+.review-header h3 { margin: 0; font-size: 1.05rem; color: var(--blue); }
+.review-model-badge {
+    background: var(--blue-lighter); color: #fff; padding: 0.15rem 0.6rem;
+    border-radius: 12px; font-size: 0.75rem; font-weight: 600;
+}
+.review-assessment {
+    background: #f0f4f8; border-radius: 8px; padding: 0.75rem 1rem;
+    font-size: 0.9rem; color: var(--gray-800); line-height: 1.5; margin-bottom: 0.75rem;
+}
+.review-table {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+}
+.review-table th {
+    background: var(--blue); color: #fff; padding: 0.5rem; text-align: left; font-weight: 600;
+}
+.review-table td {
+    padding: 0.5rem; border-bottom: 1px solid var(--gray-200); vertical-align: middle;
+}
+.review-table tr:hover { background: #f8f9fa; }
+
+.review-flag {
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px;
+    font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+}
+.review-flag-high { background: #ffebee; color: #c62828; }
+.review-flag-low { background: #e3f2fd; color: #1565c0; }
+.review-flag-inconsistent { background: #fff8e1; color: #f57f17; }
+
 /* ── Drop zone ────────────────────────────────────────────────────────────── */
 .drop-zone {
     border: 2px dashed var(--gray-300);

@@ -111,6 +111,8 @@ def list_sessions() -> list:
                 'model_label':     data.get('model_label', ''),
                 'strictness_emoji': data.get('strictness_emoji', ''),
                 'canvas_enabled':  data.get('canvas_enabled', False),
+                'status':          data.get('status', 'complete'),
+                'batch_id':        data.get('batch_id'),
             })
         except Exception:
             continue

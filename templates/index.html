@@ -397,6 +397,12 @@
     <button type="submit" id="submitBtn" class="btn btn-primary btn-block">
         Start Grading
     </button>
+    <button type="button" id="batchBtn" class="btn btn-secondary btn-block" onclick="submitBatch()" style="margin-top: 0.5rem;">
+        ⏳ Grade Later (50% cheaper)
+    </button>
+    <p class="help-text" id="batchHint" style="margin: 0.3rem 0 0; font-size: 0.78rem; color: var(--gray-600); text-align: center;">
+        Uses Batch API &mdash; results in minutes to hours. Available for Claude &amp; OpenAI.
+    </p>
 </form>
 {% endblock %}
 

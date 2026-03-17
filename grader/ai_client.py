@@ -37,6 +37,24 @@ MODEL_LABELS = {
     'gemini-1.5-flash':          'Gemini 1.5 Flash',
 }
 
+# Model hierarchy: cheapest → flagship (per provider)
+MODEL_HIERARCHY = {
+    'claude': ['claude-haiku-3-5-20241022', 'claude-sonnet-4-20250514', 'claude-opus-4-5'],
+    'openai': ['gpt-4o-mini', 'gpt-4o', 'o3-mini'],
+    'gemini': ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'],
+}
+
+
+def get_review_model(provider: str, grading_model: str) -> str:
+    """Return one tier higher model for consistency review.
+    If already flagship, return the same model."""
+    hierarchy = MODEL_HIERARCHY.get(provider, [])
+    try:
+        idx = hierarchy.index(grading_model)
+        return hierarchy[min(idx + 1, len(hierarchy) - 1)]
+    except ValueError:
+        return grading_model
+
 
 class GraderAI:
     def __init__(self, provider: str, api_key: str, model: str = None):
@@ -125,6 +143,36 @@ class GraderAI:
                 break
 
         raise GradingError(f"Failed after 3 attempts: {last_error}")
+
+    def review_scores(self, system_prompt: str, user_message: str) -> dict:
+        """Run a consistency review across all graded results."""
+        last_error = None
+        for attempt in range(3):
+            try:
+                raw = self._call_api(system_prompt, user_message)
+                return self._parse_review_response(raw)
+            except GradingError:
+                raise
+            except Exception as e:
+                last_error = e
+                err_str = str(e).lower()
+                if 'rate' in err_str or '429' in str(e) or 'quota' in err_str:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                break
+        raise GradingError(f"Review failed after 3 attempts: {last_error}")
+
+    @staticmethod
+    def prepare_batch_request(idx: int, system_prompt: str, user_message: str) -> dict:
+        """Build a batch-ready request dict without calling the API."""
+        return {
+            'custom_id': str(idx),
+            'system_prompt': system_prompt,
+            'user_message': user_message,
+        }
 
     def _call_api(self, system_prompt: str, user_message: str) -> str:
         if self.provider == 'claude':
@@ -249,3 +297,44 @@ class GraderAI:
         if parsed_questions:
             result['questions'] = parsed_questions
         return result
+
+    def _parse_review_response(self, raw: str) -> dict:
+        """Parse the consistency review JSON response."""
+        text = raw.strip()
+        if text.startswith('```'):
+            lines = text.split('\n')
+            lines = lines[1:]
+            if lines and lines[-1].strip() == '```':
+                lines = lines[:-1]
+            text = '\n'.join(lines)
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            raise GradingError(f"Review returned invalid JSON. Raw:\n{raw[:500]}")
+
+        overall = str(data.get('overall_assessment', ''))
+        if not overall:
+            raise GradingError("Review response missing 'overall_assessment'.")
+
+        raw_flags = data.get('flags') or []
+        flags = []
+        for f in raw_flags:
+            if not isinstance(f, dict):
+                continue
+            flag_type = str(f.get('flag', 'ok')).lower()
+            if flag_type not in ('ok', 'low', 'high', 'inconsistent'):
+                flag_type = 'ok'
+            flags.append({
+                'idx': int(f.get('idx', 0)),
+                'filename': str(f.get('filename', '')),
+                'original_score': float(f.get('original_score', 0)),
+                'suggested_score': float(f.get('suggested_score', 0)),
+                'flag': flag_type,
+                'rationale': str(f.get('rationale', '')),
+            })
+
+        return {
+            'overall_assessment': overall,
+            'flags': flags,
+        }

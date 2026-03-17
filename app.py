@@ -15,11 +15,17 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from config import (MAX_ZIP_SIZE_MB, SUPPORTED_ESSAY_EXTENSIONS,
                     SUPPORTED_RUBRIC_EXTENSIONS)
-from grader.ai_client import GraderAI, GradingError, ALLOWED_MODELS, DEFAULT_MODELS, MODEL_LABELS
+from grader.ai_client import (GraderAI, GradingError, ALLOWED_MODELS, DEFAULT_MODELS,
+                              MODEL_LABELS, get_review_model)
+from grader.batch_client import BatchGrader, BatchError
 from grader.canvas_client import CanvasClient, CanvasError
 from grader.extractor import ExtractionError, extract_text
-from grader.prompt_builder import get_strictness_info, DEFAULT_STRICTNESS, build_rubric_generation_prompt
+from grader.prompt_builder import (get_strictness_info, DEFAULT_STRICTNESS,
+                                   build_rubric_generation_prompt, build_review_prompt,
+                                   build_system_prompt, build_essay_message,
+                                   build_quiz_system_prompt, build_quiz_message)
 from grader import session_store
+from grader import batch_store
 from grader.license_manager import get_license_manager, TRIAL_MAX_SESSIONS
 
 # When running as a PyInstaller bundle, resolve bundled data files correctly
@@ -1740,6 +1746,433 @@ def report():
         all_results=all_results,
         results_json=json.dumps(results_list),
     )
+
+
+# ── Batch Grading ────────────────────────────────────────────────────────────
+
+@app.route('/batch-pending')
+def batch_pending():
+    lm = get_license_manager()
+    return render_template('batch_pending.html', license_status=lm.get_status())
+
+
+@app.route('/grade/batch', methods=['POST'])
+def grade_batch():
+    """Submit essays/quiz for batch grading (50% cheaper, async)."""
+    provider = request.form.get('provider', '').strip().lower()
+    api_key = request.form.get('api_key', '').strip()
+    model = request.form.get('model', '').strip()
+    strictness = int(request.form.get('strictness', DEFAULT_STRICTNESS))
+    grading_mode = request.form.get('grading_mode', 'essay').strip()
+
+    if provider not in ALLOWED_MODELS:
+        return jsonify({'error': 'Invalid AI provider.'}), 400
+    if not api_key:
+        return jsonify({'error': 'Please enter your API key.'}), 400
+
+    # Gemini doesn't support batch API
+    if provider == 'gemini':
+        return jsonify({'error': 'Batch grading is available for Claude and OpenAI only. '
+                       'Use "Grade Now" for Gemini, or switch providers.'}), 400
+
+    # Validate model
+    allowed = ALLOWED_MODELS[provider]
+    default = DEFAULT_MODELS[provider]
+    model = model if model in allowed else default
+
+    # License check
+    lm = get_license_manager()
+    if not lm.can_grade():
+        return jsonify({'error': 'License required. Please activate or start a trial.'}), 403
+    if lm.is_trial() and not lm.use_trial_session():
+        return jsonify({'error': 'Trial sessions exhausted. Please purchase a license.'}), 403
+
+    # ── Quiz mode batch ──
+    if grading_mode == 'quiz':
+        prefetch_id = request.form.get('canvas_prefetch_id', '').strip()
+        _cleanup_canvas_prefetch()
+        prefetch = canvas_prefetch.get(prefetch_id)
+        if not prefetch or prefetch.get('grading_mode') != 'quiz':
+            return jsonify({'error': 'Quiz session expired. Please fetch submissions again.'}), 400
+
+        quiz_questions = prefetch['questions']
+        quiz_submissions = prefetch['submissions']
+        answer_key = request.form.get('quiz_answer_key', '').strip() or None
+
+        if not quiz_submissions:
+            return jsonify({'error': 'No quiz submissions to grade.'}), 400
+
+        # Build batch requests
+        system_prompt = build_quiz_system_prompt(quiz_questions, strictness, answer_key=answer_key)
+        batch_requests = []
+        for idx, sub in enumerate(quiz_submissions):
+            user_msg = build_quiz_message(sub['filename'], sub['answers'])
+            batch_requests.append(GraderAI.prepare_batch_request(idx, system_prompt, user_msg))
+
+        canvas_meta = {
+            'canvas_enabled': True,
+            'canvas_url': prefetch['canvas_url'],
+            'canvas_token': prefetch['canvas_token'],
+            'canvas_course_id': prefetch['course_id'],
+            'canvas_quiz_id': prefetch['quiz_id'],
+            'canvas_points_possible': prefetch.get('points_possible'),
+            'quiz_type': prefetch.get('quiz_type', 'classic'),
+        }
+        essays_data = []
+        submissions_data = quiz_submissions
+
+    else:
+        # ── Essay mode batch ──
+        rubric_text = ''
+        rubric_file = request.files.get('rubric_file')
+        if rubric_file and rubric_file.filename:
+            try:
+                rubric_text = extract_text(rubric_file)
+            except ExtractionError as e:
+                return jsonify({'error': f'Could not read rubric: {e}'}), 400
+        if not rubric_text:
+            rubric_text = request.form.get('rubric_text', '').strip()
+        if not rubric_text:
+            return jsonify({'error': 'Please provide a rubric.'}), 400
+
+        # Get prefetched essays (Canvas mode) or uploaded files
+        prefetch_id = request.form.get('canvas_prefetch_id', '').strip()
+        essays_data = []
+        canvas_meta = {}
+
+        if prefetch_id:
+            _cleanup_canvas_prefetch()
+            prefetch = canvas_prefetch.get(prefetch_id)
+            if not prefetch:
+                return jsonify({'error': 'Canvas data expired. Please fetch submissions again.'}), 400
+            essays_data = prefetch.get('submissions', [])
+            canvas_meta = {
+                'canvas_enabled': True,
+                'canvas_url': prefetch['canvas_url'],
+                'canvas_token': prefetch['canvas_token'],
+                'canvas_course_id': prefetch.get('course_id'),
+                'canvas_assignment_id': prefetch.get('assignment_id'),
+                'canvas_points_possible': prefetch.get('points_possible'),
+            }
+        else:
+            # Handle file upload (same as /grade route)
+            essay_mode = request.form.get('essay_mode', 'files')
+            # For batch, just extract essays now
+            if essay_mode == 'zip':
+                zf = request.files.get('zip_file')
+                if not zf:
+                    return jsonify({'error': 'No ZIP file provided.'}), 400
+                try:
+                    with zipfile.ZipFile(BytesIO(zf.read())) as z:
+                        for name in z.namelist():
+                            ext = os.path.splitext(name)[1].lower()
+                            if ext in SUPPORTED_ESSAY_EXTENSIONS and not name.startswith('__MACOSX'):
+                                text = extract_text(BytesIO(z.read(name)), filename=name)
+                                essays_data.append({'filename': os.path.basename(name), 'text': text})
+                except Exception as e:
+                    return jsonify({'error': f'Error reading ZIP: {e}'}), 400
+            else:
+                files = request.files.getlist('essay_files')
+                for f in files:
+                    try:
+                        text = extract_text(f)
+                        essays_data.append({'filename': f.filename, 'text': text})
+                    except ExtractionError as e:
+                        essays_data.append({'filename': f.filename, 'text': '', 'error': str(e)})
+
+        if not essays_data:
+            return jsonify({'error': 'No essays to grade.'}), 400
+
+        # Filter out extraction errors
+        valid_essays = [e for e in essays_data if not e.get('error') and e.get('text')]
+        if not valid_essays:
+            return jsonify({'error': 'No readable essays found.'}), 400
+
+        # Build batch requests
+        system_prompt = build_system_prompt(rubric_text, strictness)
+        batch_requests = []
+        for idx, essay in enumerate(valid_essays):
+            user_msg = build_essay_message(essay['text'], essay['filename'])
+            batch_requests.append(GraderAI.prepare_batch_request(idx, system_prompt, user_msg))
+
+        submissions_data = valid_essays
+        quiz_questions = None
+        answer_key = None
+
+    # Submit the batch
+    try:
+        batch_grader = BatchGrader(provider, api_key, model)
+        batch_id = batch_grader.submit_batch(batch_requests)
+    except BatchError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Failed to submit batch: {e}'}), 500
+
+    # Create session
+    session_id = str(uuid.uuid4())
+    session['session_id'] = session_id
+    strictness_info = get_strictness_info(strictness)
+    model_label = MODEL_LABELS.get(model, model)
+
+    sess_data = {
+        'status': 'batch_pending',
+        'grading_mode': grading_mode,
+        'essays': essays_data if grading_mode == 'essay' else [],
+        'rubric': rubric_text if grading_mode == 'essay' else '',
+        'strictness': strictness,
+        'strictness_label': strictness_info['label'],
+        'strictness_emoji': strictness_info['emoji'],
+        'model': model,
+        'model_label': model_label,
+        'results': [],
+        'progress': queue.Queue(),
+        'total': len(batch_requests),
+        'current': 0,
+        'batch_id': batch_id,
+        'batch_provider': provider,
+    }
+    if grading_mode == 'quiz':
+        sess_data['quiz_questions'] = quiz_questions
+        sess_data['answer_key'] = answer_key
+    sess_data.update(canvas_meta)
+    sessions[session_id] = sess_data
+
+    # Save batch metadata to disk
+    batch_meta = {
+        'batch_id': batch_id,
+        'session_id': session_id,
+        'provider': provider,
+        'api_key_hash': batch_store.hash_key(api_key),
+        'model': model,
+        'status': 'pending',
+        'created_at': datetime.now().isoformat(),
+        'completed_at': None,
+        'total': len(batch_requests),
+        'grading_mode': grading_mode,
+    }
+    batch_store.save_batch(session_id, batch_meta)
+
+    # Save session to disk immediately (persists across app restart)
+    _save_session_to_disk(session_id)
+
+    return jsonify({
+        'session_id': session_id,
+        'batch_id': batch_id,
+        'total': len(batch_requests),
+        'status': 'batch_pending',
+    })
+
+
+@app.route('/api/batch/poll', methods=['POST'])
+def api_batch_poll():
+    """Poll batch status and process results when complete."""
+    data = request.get_json()
+    session_id = (data.get('session_id') or '').strip()
+    api_key = (data.get('api_key') or '').strip()
+
+    if not session_id or not api_key:
+        return jsonify({'error': 'Missing session_id or api_key.'}), 400
+
+    # Load batch metadata
+    batch_meta = batch_store.load_batch(session_id)
+    if not batch_meta:
+        return jsonify({'error': 'Batch job not found.'}), 404
+
+    # Check if already completed
+    if batch_meta.get('status') == 'completed':
+        sess = _get_session(session_id)
+        if sess and sess.get('results'):
+            return jsonify({
+                'status': 'completed',
+                'total': len(sess['results']),
+                'completed_count': len(sess['results']),
+            })
+
+    # Verify API key matches
+    if batch_store.hash_key(api_key) != batch_meta.get('api_key_hash'):
+        return jsonify({'error': 'API key does not match the one used to submit this batch.'}), 403
+
+    provider = batch_meta['provider']
+    model = batch_meta['model']
+    batch_id = batch_meta['batch_id']
+
+    try:
+        grader = BatchGrader(provider, api_key, model)
+        poll_result = grader.poll_batch(batch_id)
+    except BatchError as e:
+        return jsonify({'error': str(e)}), 400
+
+    status = poll_result['status']
+
+    if status == 'completed':
+        # Process results
+        raw_results = poll_result.get('results', [])
+        sess = _get_session(session_id)
+        if not sess:
+            return jsonify({'error': 'Session not found.'}), 404
+
+        grading_mode = sess.get('grading_mode', 'essay')
+        essays = sess.get('essays', [])
+        submissions = []
+
+        # For quiz mode, we need the original submission data
+        # For essay mode, we map by index
+
+        # Parse each result through _parse_response
+        ai = GraderAI(provider, api_key, model=model)
+        parsed_results = [None] * batch_meta['total']
+
+        for raw in raw_results:
+            idx = int(raw['custom_id'])
+            if raw.get('raw_text') is None:
+                parsed_results[idx] = {
+                    'filename': '',
+                    'score': None, 'max_score': None,
+                    'summary': None,
+                    'error': raw.get('error', 'Batch processing error'),
+                }
+                continue
+            try:
+                parsed = ai._parse_response(raw['raw_text'])
+                parsed_results[idx] = {
+                    'filename': '',
+                    'score': parsed['score'],
+                    'max_score': parsed['max_score'],
+                    'summary': parsed['summary'],
+                    'categories': parsed.get('categories', []),
+                    'questions': parsed.get('questions', []),
+                    'error': None,
+                }
+            except Exception as e:
+                parsed_results[idx] = {
+                    'filename': '',
+                    'score': None, 'max_score': None,
+                    'summary': None,
+                    'error': str(e),
+                }
+
+        # Attach filenames and canvas metadata
+        if grading_mode == 'essay':
+            valid_essays = [e for e in essays if not e.get('error') and e.get('text')]
+            for idx, result in enumerate(parsed_results):
+                if result and idx < len(valid_essays):
+                    result['filename'] = valid_essays[idx].get('filename', f'Essay {idx+1}')
+                    if valid_essays[idx].get('canvas_user_id'):
+                        result['canvas_user_id'] = valid_essays[idx]['canvas_user_id']
+
+        sess['results'] = [r for r in parsed_results if r is not None]
+        sess['status'] = 'complete'
+
+        batch_store.update_batch_status(session_id, 'completed',
+                                        completed_at=datetime.now().isoformat())
+        _save_session_to_disk(session_id)
+
+        return jsonify({
+            'status': 'completed',
+            'total': len(sess['results']),
+            'completed_count': len(sess['results']),
+        })
+
+    elif status == 'failed':
+        batch_store.update_batch_status(session_id, 'failed')
+        return jsonify({
+            'status': 'failed',
+            'error': poll_result.get('error', 'Batch processing failed.'),
+        })
+
+    # Still in progress
+    return jsonify({'status': 'in_progress'})
+
+
+def _save_session_to_disk(session_id: str):
+    """Quick helper to persist current session state to disk."""
+    sess = sessions.get(session_id)
+    if not sess:
+        return
+    save_data = {
+        'session_id': session_id,
+        'saved_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'label': _session_label(sess),
+        'grading_mode': sess.get('grading_mode', 'essay'),
+        'rubric': sess.get('rubric', ''),
+        'strictness': sess.get('strictness', DEFAULT_STRICTNESS),
+        'strictness_label': sess.get('strictness_label', ''),
+        'strictness_emoji': sess.get('strictness_emoji', ''),
+        'model': sess.get('model', ''),
+        'model_label': sess.get('model_label', ''),
+        'total': sess.get('total', 0),
+        'results': sess.get('results', []),
+        'essays': sess.get('essays', []),
+        'canvas_enabled': sess.get('canvas_enabled', False),
+        'canvas_course_id': sess.get('canvas_course_id'),
+        'canvas_assignment_id': sess.get('canvas_assignment_id'),
+        'canvas_quiz_id': sess.get('canvas_quiz_id'),
+        'canvas_points_possible': sess.get('canvas_points_possible'),
+        'push_status': sess.get('push_status', {}),
+        'status': sess.get('status', 'complete'),
+        'batch_id': sess.get('batch_id'),
+        'batch_provider': sess.get('batch_provider'),
+    }
+    if sess.get('grading_mode') == 'quiz':
+        save_data['quiz_questions'] = sess.get('quiz_questions', [])
+    if sess.get('review'):
+        save_data['review'] = sess['review']
+    try:
+        session_store.save_session(session_id, save_data)
+    except Exception:
+        pass
+
+
+# ── AI Consistency Review ────────────────────────────────────────────────────
+
+@app.route('/api/review-scores', methods=['POST'])
+def api_review_scores():
+    """Run AI consistency review across all graded results."""
+    data = request.get_json()
+    session_id = (data.get('session_id') or '').strip()
+    provider = (data.get('provider') or '').strip().lower()
+    api_key = (data.get('api_key') or '').strip()
+
+    if not all([session_id, provider, api_key]):
+        return jsonify({'error': 'Missing required fields.'}), 400
+
+    sess = _get_session(session_id)
+    if not sess:
+        return jsonify({'error': 'Session not found.'}), 404
+
+    if sess.get('status') != 'complete':
+        return jsonify({'error': 'Grading must be complete before reviewing.'}), 400
+
+    results = sess.get('results', [])
+    valid_results = [r for r in results if not r.get('error')]
+    if len(valid_results) < 2:
+        return jsonify({'error': 'Need at least 2 graded results to review for consistency.'}), 400
+
+    grading_mode = sess.get('grading_mode', 'essay')
+    grading_model = sess.get('model', '')
+    review_model = get_review_model(provider, grading_model)
+    rubric = sess.get('rubric', '')
+
+    system_prompt, user_message = build_review_prompt(rubric, results, grading_mode)
+
+    try:
+        grader = GraderAI(provider, api_key, model=review_model)
+        review = grader.review_scores(system_prompt, user_message)
+    except GradingError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Review failed: {e}'}), 500
+
+    # Store review in session
+    sess['review'] = review
+    _save_session_to_disk(session_id)
+
+    return jsonify({
+        'success': True,
+        'review_model': review_model,
+        'review_model_label': MODEL_LABELS.get(review_model, review_model),
+        'review': review,
+    })
 
 
 @app.route('/api/regrade', methods=['POST'])

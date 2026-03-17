@@ -263,6 +263,96 @@ function toggleCalibration() {
     content.style.display = enabled ? 'block' : 'none';
 }
 
+// ─── Batch submission ("Grade Later") ─────────────────────────────────────────
+async function submitBatch() {
+    saveKeyIfChecked();
+
+    const errorDiv = document.getElementById('form-error');
+    errorDiv.style.display = 'none';
+
+    const essayMode = document.getElementById('essay_mode').value;
+    const gradingMode = document.getElementById('grading_mode')?.value || 'essay';
+
+    // Validate essay/quiz input
+    if (gradingMode === 'quiz') {
+        const prefetchId = document.getElementById('canvas_prefetch_id').value;
+        if (!prefetchId) {
+            errorDiv.textContent = 'Please fetch quiz submissions before grading.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+    } else if (essayMode === 'zip') {
+        if (!document.getElementById('zip_file').files[0]) {
+            errorDiv.textContent = 'Please upload a ZIP file of essays.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+    } else if (essayMode === 'files') {
+        if (selectedEssayFiles.length === 0) {
+            errorDiv.textContent = 'Please select at least one essay file.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+    } else if (essayMode === 'canvas') {
+        if (!document.getElementById('canvas_prefetch_id').value) {
+            errorDiv.textContent = 'Please fetch Canvas submissions before grading.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+    }
+
+    // Check provider is Claude or OpenAI
+    const provider = document.querySelector('input[name="provider"]:checked')?.value || '';
+    if (provider === 'gemini') {
+        errorDiv.textContent = 'Batch grading is available for Claude and OpenAI only. Use "Start Grading" for Gemini.';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    const btn = document.getElementById('batchBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Submitting batch...';
+    document.getElementById('submitBtn').disabled = true;
+
+    const form = document.getElementById('gradeForm');
+    const formData = new FormData(form);
+
+    if (essayMode === 'files' && gradingMode !== 'quiz') {
+        selectedEssayFiles.forEach(file => {
+            formData.append('essay_files', file, file.name);
+        });
+    }
+
+    try {
+        const resp = await fetch('/grade/batch', { method: 'POST', body: formData });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            errorDiv.textContent = data.error || 'Something went wrong.';
+            errorDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = '⏳ Grade Later (50% cheaper)';
+            document.getElementById('submitBtn').disabled = false;
+            return;
+        }
+
+        // Save credentials for polling
+        const model = document.querySelector('select[name="model"]:not(:disabled)')?.value || '';
+        const apiKey = document.getElementById('api_key').value.trim();
+        localStorage.setItem('wgp_provider', provider);
+        localStorage.setItem('wgp_model', model);
+        if (apiKey) localStorage.setItem('wgp_api_key', apiKey);
+
+        window.location.href = `/batch-pending?session_id=${data.session_id}&total=${data.total}`;
+    } catch (err) {
+        errorDiv.textContent = 'Network error. Please try again.';
+        errorDiv.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '⏳ Grade Later (50% cheaper)';
+        document.getElementById('submitBtn').disabled = false;
+    }
+}
+
 // ─── Form submission ──────────────────────────────────────────────────────────
 document.getElementById('gradeForm').addEventListener('submit', async function (e) {
     e.preventDefault();
