@@ -245,6 +245,7 @@ def grade():
             'canvas_course_id': prefetch['course_id'],
             'canvas_quiz_id': prefetch['quiz_id'],
             'canvas_points_possible': prefetch.get('points_possible'),
+            'quiz_type': prefetch.get('quiz_type', 'classic'),
         }
 
         # License check
@@ -808,17 +809,10 @@ def canvas_quiz_questions():
         client = CanvasClient(canvas_url, canvas_token)
 
         if quiz_type == 'new':
-            # New Quizzes — we can fetch items but not student answers via API.
-            # Student answers are locked inside the Quiz LTI service.
-            return jsonify({
-                'error': 'New Quizzes store student answers inside Canvas\'s quiz '
-                         'engine, which isn\'t accessible through the API. '
-                         'To grade New Quiz essays, download the Student Analysis '
-                         'report from Canvas (Quiz → three dots → Student Analysis) '
-                         'and use WGP\'s file upload instead.',
-            }), 400
-
-        questions = client.get_quiz_questions(int(course_id), int(quiz_id))
+            # New Quizzes — use the items API
+            questions = client.get_new_quiz_items(int(course_id), int(quiz_id))
+        else:
+            questions = client.get_quiz_questions(int(course_id), int(quiz_id))
         # Count gradable question types
         gradable_types = ('essay_question', 'short_answer_question')
         gradable = [q for q in questions if q['question_type'] in gradable_types]
@@ -843,6 +837,7 @@ def canvas_start_quiz_fetch():
     course_id = data.get('course_id')
     quiz_id = data.get('quiz_id')
     points_possible = data.get('points_possible')
+    quiz_type = data.get('quiz_type', 'classic')
 
     if not all([canvas_url, canvas_token, course_id, quiz_id]):
         return jsonify({'error': 'Missing required fields.'}), 400
@@ -853,11 +848,18 @@ def canvas_start_quiz_fetch():
         'queue': queue.Queue(),
     }
 
-    thread = threading.Thread(
-        target=_do_canvas_quiz_fetch,
-        args=(fetch_id, canvas_url, canvas_token, course_id, quiz_id, points_possible),
-        daemon=True,
-    )
+    if quiz_type == 'new':
+        thread = threading.Thread(
+            target=_do_canvas_new_quiz_fetch,
+            args=(fetch_id, canvas_url, canvas_token, course_id, quiz_id, points_possible),
+            daemon=True,
+        )
+    else:
+        thread = threading.Thread(
+            target=_do_canvas_quiz_fetch,
+            args=(fetch_id, canvas_url, canvas_token, course_id, quiz_id, points_possible),
+            daemon=True,
+        )
     thread.start()
 
     return jsonify({'fetch_id': fetch_id})
@@ -1021,6 +1023,186 @@ def _do_canvas_quiz_fetch(fetch_id, canvas_url, canvas_token, course_id, quiz_id
     })
 
 
+def _do_canvas_new_quiz_fetch(fetch_id, canvas_url, canvas_token, course_id, quiz_id, points_possible):
+    """Background thread: fetch New Quiz questions + student answers via Reports API."""
+    import re as _re
+    task = canvas_fetch_tasks.get(fetch_id)
+    if not task:
+        return
+    q = task['queue']
+
+    try:
+        client = CanvasClient(canvas_url, canvas_token)
+
+        # Step 1: Fetch quiz items (questions)
+        all_questions = client.get_new_quiz_items(int(course_id), int(quiz_id))
+
+        # Step 2: Request the Student Analysis report
+        progress = client.request_new_quiz_report(int(course_id), int(quiz_id), fmt='json')
+        progress_url = progress.get('url', '')
+        if not progress_url:
+            raise CanvasError('No progress URL returned from report request.')
+
+        # Step 3: Poll until report is ready
+        result = client.poll_progress(progress_url, timeout=120)
+        results_info = result.get('results', {})
+        report_url = results_info.get('url', '')
+        if not report_url:
+            raise CanvasError('Report completed but no download URL was returned.')
+
+        # Step 4: Download the report
+        report_data = client.download_report(report_url)
+
+    except CanvasError as e:
+        q.put({'type': 'error', 'message': str(e)})
+        task['status'] = 'error'
+        return
+    except Exception as e:
+        q.put({'type': 'error', 'message': f'Error fetching New Quiz data: {e}'})
+        task['status'] = 'error'
+        return
+
+    # Filter items API questions to gradable types
+    gradable_types = ('essay_question', 'short_answer_question')
+    gradable_questions = [qn for qn in all_questions if qn['question_type'] in gradable_types]
+
+    if not gradable_questions:
+        q.put({'type': 'error', 'message': 'This quiz has no essay or short answer questions to grade.'})
+        task['status'] = 'error'
+        return
+
+    # Build position-based mapping: items API and report use different IDs
+    # but questions are in the same positional order.
+    # Map items API question by position, then map report item_id -> items API question.
+    items_by_position = {qn.get('position', idx): qn for idx, qn in enumerate(all_questions)}
+    gradable_positions = {qn.get('position', idx) for idx, qn in enumerate(all_questions)
+                          if qn['question_type'] in gradable_types}
+
+    # Gradable report item_types (report uses 'essay', 'short_answer', etc.)
+    gradable_report_types = ('essay', 'short_answer', 'fill_in_the_blank', 'rich_fill_in_the_blank')
+
+    # Build report_item_id -> items_api question mapping using first student's responses
+    report_id_to_question = {}
+    if report_data:
+        first_responses = report_data[0].get('item_responses', [])
+        for pos_idx, resp in enumerate(first_responses):
+            report_item_id = str(resp.get('item_id', ''))
+            # Match by position (1-indexed in items API)
+            position = pos_idx + 1
+            if position in items_by_position:
+                api_question = items_by_position[position]
+                if api_question['question_type'] in gradable_types:
+                    report_id_to_question[report_item_id] = api_question
+
+    # Process report data — each record is one student
+    total = len(report_data)
+    q.put({'type': 'start', 'total': total})
+
+    submissions = []
+    preview = []
+    skipped = 0
+
+    for i, record in enumerate(report_data):
+        student = record.get('student_data', {})
+        student_name = student.get('name', f"Student {student.get('id', '?')}")
+        user_id = student.get('id')
+        attempt = student.get('attempt', 1)
+        item_responses = record.get('item_responses', [])
+
+        # Build answers list for gradable questions only
+        answers = []
+        for resp in item_responses:
+            report_item_id = str(resp.get('item_id', ''))
+            item_type = resp.get('item_type', '')
+
+            # Use the mapping if available, otherwise filter by report item_type
+            qinfo = report_id_to_question.get(report_item_id)
+            if not qinfo and item_type not in gradable_report_types:
+                continue
+            if not qinfo:
+                # Fallback: match by position within this student's responses
+                resp_idx = item_responses.index(resp)
+                position = resp_idx + 1
+                qinfo = items_by_position.get(position)
+                if not qinfo or qinfo['question_type'] not in gradable_types:
+                    continue
+
+            # Extract answer text — report stores as HTML
+            raw_answer = resp.get('answer', '')
+            if isinstance(raw_answer, str) and raw_answer.strip():
+                answer_text = _re.sub(r'<[^>]+>', ' ', raw_answer).strip()
+                answer_text = _re.sub(r'\s+', ' ', answer_text).strip()
+            else:
+                answer_text = ''
+
+            answers.append({
+                'question_id': str(qinfo['id']),  # Use items API ID for consistency
+                'question_text': _re.sub(r'<[^>]+>', ' ', qinfo.get('question_text', '')).strip(),
+                'answer_text': answer_text,
+                'points': qinfo.get('points_possible', 0),
+            })
+
+        if not answers:
+            skipped += 1
+            preview.append({'name': student_name, 'status': 'skipped', 'reason': 'No gradable answers'})
+            q.put({'type': 'progress', 'current': i + 1, 'total': total,
+                   'name': student_name, 'status': 'skipped', 'reason': 'No gradable answers'})
+            continue
+
+        submissions.append({
+            'filename': student_name,
+            'canvas_user_id': user_id,
+            'quiz_submission_id': None,  # New Quizzes don't use quiz_submission_id
+            'attempt': attempt,
+            'answers': answers,
+            'quiz_type': 'new',
+        })
+        preview.append({'name': student_name, 'status': 'ready'})
+        q.put({'type': 'progress', 'current': i + 1, 'total': total,
+               'name': student_name, 'status': 'ready'})
+
+    if not submissions:
+        q.put({'type': 'error', 'message': f'No gradable submissions found. {skipped} skipped.'})
+        task['status'] = 'error'
+        return
+
+    # Build question list for the grading prompt
+    quiz_q_list = [
+        {
+            'id': str(qn['id']),
+            'text': _re.sub(r'<[^>]+>', ' ', qn.get('question_text', '')).strip(),
+            'points': qn.get('points_possible', 0),
+            'question_type': qn['question_type'],
+        }
+        for qn in gradable_questions
+    ]
+
+    prefetch_id = str(uuid.uuid4())
+    canvas_prefetch[prefetch_id] = {
+        'grading_mode': 'quiz',
+        'quiz_type': 'new',
+        'questions': quiz_q_list,
+        'submissions': submissions,
+        'canvas_url': canvas_url,
+        'canvas_token': canvas_token,
+        'course_id': int(course_id),
+        'quiz_id': int(quiz_id),
+        'points_possible': points_possible,
+        'expires': time.time() + 3600,
+    }
+
+    task['status'] = 'complete'
+    q.put({
+        'type': 'complete',
+        'prefetch_id': prefetch_id,
+        'count': len(submissions),
+        'skipped': skipped,
+        'preview': preview,
+        'points_possible': points_possible,
+        'gradable_count': len(gradable_questions),
+    })
+
+
 def _grade_quiz_submissions(session_id, provider, api_key, questions,
                              submissions, strictness=DEFAULT_STRICTNESS,
                              model=None, answer_key=None):
@@ -1066,6 +1248,8 @@ def _grade_quiz_submissions(session_id, provider, api_key, questions,
         if submission.get('quiz_submission_id'):
             result['quiz_submission_id'] = submission['quiz_submission_id']
             result['attempt'] = submission.get('attempt', 1)
+        if submission.get('quiz_type'):
+            result['quiz_type'] = submission['quiz_type']
 
         sess['results'].append(result)
         sess['progress'].put({
@@ -1082,7 +1266,7 @@ def _grade_quiz_submissions(session_id, provider, api_key, questions,
 
 @app.route('/api/canvas/push-quiz-grade', methods=['POST'])
 def canvas_push_quiz_grade():
-    """Push per-question grades back to a Canvas Classic Quiz."""
+    """Push per-question grades back to a Canvas quiz (Classic or New)."""
     data = request.get_json()
     session_id = (data.get('session_id') or '').strip()
     idx = data.get('idx')
@@ -1100,23 +1284,9 @@ def canvas_push_quiz_grade():
     if result.get('error'):
         return jsonify({'error': 'Cannot push a result that has a grading error.'}), 400
 
-    quiz_sub_id = result.get('quiz_submission_id')
-    attempt = result.get('attempt', 1)
-    if not quiz_sub_id:
-        return jsonify({'error': 'No quiz submission ID for this result.'}), 400
-
     graded_questions = result.get('questions', [])
     if not graded_questions:
         return jsonify({'error': 'No per-question grades available.'}), 400
-
-    # Build the question grades payload
-    push_questions = []
-    for gq in graded_questions:
-        push_questions.append({
-            'id': int(gq['question_id']),
-            'score': gq['earned'],
-            'comment': gq.get('feedback', ''),
-        })
 
     canvas_url = data.get('canvas_url') or sess.get('canvas_url', '')
     canvas_token = data.get('canvas_token') or sess.get('canvas_token', '')
@@ -1124,9 +1294,46 @@ def canvas_push_quiz_grade():
     if not canvas_url or not canvas_token:
         return jsonify({'error': 'Canvas credentials required. Please re-enter your Canvas token.'}), 400
 
+    quiz_type = result.get('quiz_type', sess.get('quiz_type', 'classic'))
+
     try:
         client = CanvasClient(canvas_url, canvas_token)
-        client.post_quiz_grades(quiz_sub_id, attempt, push_questions)
+
+        if quiz_type == 'new':
+            # New Quizzes — push total score + feedback via assignments API
+            user_id = result.get('canvas_user_id')
+            course_id = sess.get('canvas_course_id') or sess.get('course_id')
+            assignment_id = sess.get('canvas_quiz_id') or sess.get('quiz_id')
+
+            if not all([user_id, course_id, assignment_id]):
+                return jsonify({'error': 'Missing Canvas IDs for grade push.'}), 400
+
+            total_score = sum(gq.get('earned', 0) for gq in graded_questions)
+            feedback_parts = []
+            for gq in graded_questions:
+                fb = gq.get('feedback', '').strip()
+                if fb:
+                    feedback_parts.append(f"Q{gq.get('question_id', '?')}: {gq['earned']}/{gq['possible']} — {fb}")
+            comment = '\n'.join(feedback_parts) if feedback_parts else result.get('summary', '')
+
+            client.post_grade(int(course_id), int(assignment_id), int(user_id),
+                              total_score, comment)
+        else:
+            # Classic Quiz — push per-question grades
+            quiz_sub_id = result.get('quiz_submission_id')
+            attempt = result.get('attempt', 1)
+            if not quiz_sub_id:
+                return jsonify({'error': 'No quiz submission ID for this result.'}), 400
+
+            push_questions = []
+            for gq in graded_questions:
+                push_questions.append({
+                    'id': int(gq['question_id']),
+                    'score': gq['earned'],
+                    'comment': gq.get('feedback', ''),
+                })
+            client.post_quiz_grades(quiz_sub_id, attempt, push_questions)
+
         if 'push_status' not in sess:
             sess['push_status'] = {}
         sess['push_status'][str(idx)] = 'pushed'

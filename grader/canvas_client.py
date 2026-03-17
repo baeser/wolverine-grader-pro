@@ -264,41 +264,100 @@ class CanvasClient:
     # ── New Quizzes API (/api/quiz/v1) ──────────────────────────────────────
 
     def get_new_quiz_items(self, course_id: int, assignment_id: int) -> list:
-        """Return all items (questions) for a New Quiz via the Quiz API.
+        """Return all items (questions) for a New Quiz.
 
-        The New Quizzes API uses the assignment_id as the quiz identifier.
         Endpoint: /api/quiz/v1/courses/:course_id/quizzes/:assignment_id/items
+        Returns normalized list matching Classic Quiz question format.
         """
         url = f"{self.base_url}/api/quiz/v1/courses/{course_id}/quizzes/{assignment_id}/items"
         data, _ = self._get(url)
-        if isinstance(data, list):
-            return data
-        # Some Canvas instances return paginated results differently
-        return data if isinstance(data, list) else []
+        items = data if isinstance(data, list) else []
 
-    def get_new_quiz_submissions(self, course_id: int, assignment_id: int) -> list:
-        """Return all submissions for a New Quiz.
+        # Normalize to match the Classic Quiz question format
+        questions = []
+        for item in items:
+            entry = item.get('entry', {})
+            slug = entry.get('interaction_type_slug', '')
 
-        Endpoint: /api/quiz/v1/courses/:course_id/quizzes/:assignment_id/submissions
+            # Map New Quiz types to Classic Quiz types
+            if slug == 'essay':
+                q_type = 'essay_question'
+            elif slug in ('short_answer', 'fill_in_the_blank', 'rich_fill_in_the_blank'):
+                q_type = 'short_answer_question'
+            else:
+                q_type = slug  # Keep original for non-gradable types
+
+            questions.append({
+                'id': item.get('id', ''),
+                'question_name': entry.get('title') or f"Question {item.get('position', '?')}",
+                'question_type': q_type,
+                'question_text': entry.get('item_body', ''),
+                'points_possible': item.get('points_possible', 0),
+                'position': item.get('position', 0),
+            })
+        return questions
+
+    def request_new_quiz_report(self, course_id: int, assignment_id: int,
+                                 fmt: str = 'json') -> dict:
+        """Trigger a Student Analysis report for a New Quiz.
+
+        POST /api/quiz/v1/courses/:id/quizzes/:id/reports
+        Returns a progress object with 'url' to poll and 'id'.
         """
-        url = f"{self.base_url}/api/quiz/v1/courses/{course_id}/quizzes/{assignment_id}/submissions"
-        data, _ = self._get(url)
-        if isinstance(data, list):
-            return data
-        return data if isinstance(data, list) else []
+        url = f"{self.base_url}/api/quiz/v1/courses/{course_id}/quizzes/{assignment_id}/reports"
+        form_data = urllib.parse.urlencode({
+            'quiz_report[report_type]': 'student_analysis',
+            'quiz_report[format]': fmt,
+        }).encode()
+        headers = {
+            'Authorization': f'Bearer {self.api_token}',
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+        req = urllib.request.Request(url, data=form_data, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data.get('progress', data)
+        except urllib.error.HTTPError as e:
+            body_text = e.read().decode('utf-8', errors='replace')[:300]
+            raise CanvasError(f"Failed to request quiz report (HTTP {e.code}): {body_text}")
 
-    def get_new_quiz_submission_events(self, course_id: int, assignment_id: int,
-                                        submission_id: str) -> list:
-        """Return answer events for a specific New Quiz submission.
+    def poll_progress(self, progress_url: str, timeout: int = 120) -> dict:
+        """Poll a Canvas Progress object until completed or failed.
 
-        Endpoint: /api/quiz/v1/courses/:course_id/quizzes/:assignment_id/submissions/:id/events
+        Returns the final progress object with results.url on success.
         """
-        url = (f"{self.base_url}/api/quiz/v1/courses/{course_id}"
-               f"/quizzes/{assignment_id}/submissions/{submission_id}/events")
-        data, _ = self._get(url)
-        if isinstance(data, list):
-            return data
-        return data if isinstance(data, list) else []
+        import time as _time
+        deadline = _time.time() + timeout
+        while _time.time() < deadline:
+            req = urllib.request.Request(progress_url, headers=self._auth_headers())
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+            except Exception as e:
+                raise CanvasError(f"Error polling report progress: {e}")
+
+            state = data.get('workflow_state', '')
+            if state == 'completed':
+                return data
+            elif state == 'failed':
+                raise CanvasError(
+                    f"Quiz report generation failed: {data.get('message', 'Unknown error')}"
+                )
+            _time.sleep(3)
+
+        raise CanvasError("Quiz report timed out. Please try again.")
+
+    def download_report(self, results_url: str) -> list:
+        """Download and parse a completed quiz report JSON file."""
+        req = urllib.request.Request(results_url)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data if isinstance(data, list) else []
+        except Exception as e:
+            raise CanvasError(f"Failed to download quiz report: {e}")
 
     def post_quiz_grades(self, quiz_submission_id: int, attempt: int,
                          questions: list) -> dict:
