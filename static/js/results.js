@@ -9,6 +9,8 @@ let currentFeedbackLevel = 1;
 let sessionId       = null;
 let canvasEnabled   = false;
 let canvasPointsPossible = null;
+let gradingMode     = 'essay';  // 'essay' | 'quiz'
+let quizQuestions   = [];       // quiz question definitions (for display)
 // Track push status per result index: null | 'pushing' | 'pushed' | {error}
 let pushStatus = {};
 
@@ -34,6 +36,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         results = data.results;
         canvasEnabled = !!data.canvas_enabled;
         canvasPointsPossible = data.canvas_points_possible || null;
+        gradingMode = data.grading_mode || 'essay';
+        quizQuestions = data.quiz_questions || [];
 
         // Restore push status from saved session data (if any)
         if (data.push_status) {
@@ -57,8 +61,9 @@ document.addEventListener('DOMContentLoaded', async function () {
             const badge = document.querySelector('.strictness-badge');
             if (badge) {
                 const modelPart = data.model_label ? ` · ${data.model_label}` : '';
-                const canvasPart = canvasEnabled ? ' · 🎓 Canvas' : '';
-                badge.textContent = `${data.strictness_emoji} ${data.strictness_label} (Level ${data.strictness}/10)${modelPart}${canvasPart}`;
+                const quizPart = gradingMode === 'quiz' ? ' · 🎓 Canvas Quiz' : '';
+                const canvasPart = canvasEnabled && gradingMode !== 'quiz' ? ' · 🎓 Canvas' : '';
+                badge.textContent = `${data.strictness_emoji} ${data.strictness_label} (Level ${data.strictness}/10)${modelPart}${canvasPart}${quizPart}`;
             }
         }
 
@@ -196,6 +201,28 @@ function buildFeedbackText(idx, level) {
     const r = results[idx];
     if (!r || r.error) return '';
     const summary = r.summary || '';
+
+    // Quiz mode: use per-question breakdown
+    const questions = Array.isArray(r.questions) ? r.questions : [];
+    if (questions.length > 0) {
+        if (level === 1) return summary;
+
+        if (level === 2) {
+            const lines = questions.map((q, i) =>
+                `\u2022 Q${i + 1}: ${q.earned}/${q.possible}`
+            );
+            return `Question Scores:\n${lines.join('\n')}\n\n${summary}`;
+        }
+
+        // Level 3: full breakdown with feedback
+        const lines = questions.map((q, i) => {
+            const fb = q.feedback ? ` \u2014 ${q.feedback}` : '';
+            return `\u2022 Q${i + 1}: ${q.earned}/${q.possible}${fb}`;
+        });
+        return `Question Breakdown:\n${lines.join('\n')}\n\n${summary}`;
+    }
+
+    // Essay mode: use per-category breakdown
     const cats = Array.isArray(r.categories) ? r.categories : [];
 
     if (level === 1 || cats.length === 0) return summary;
@@ -234,15 +261,18 @@ function setFeedbackLevel(level) {
     updateToggleState(currentIndex);
 }
 
-/** Dim levels 2 and 3 toggle labels when the current essay has no category data. */
+/** Dim levels 2 and 3 toggle labels when the current essay has no category/question data. */
 function updateToggleState(idx) {
     const r = results[idx];
-    const hasCats = r && !r.error && Array.isArray(r.categories) && r.categories.length > 0;
+    const hasCats = r && !r.error && (
+        (Array.isArray(r.categories) && r.categories.length > 0) ||
+        (Array.isArray(r.questions) && r.questions.length > 0)
+    );
     document.querySelectorAll('.detail-opt').forEach(opt => {
         const val = parseInt(opt.querySelector('input').value);
         opt.classList.toggle('detail-opt-disabled', val > 1 && !hasCats);
         opt.title = (val > 1 && !hasCats)
-            ? 'Category breakdown not available (rubric had no distinct categories)'
+            ? 'Detailed breakdown not available'
             : '';
     });
 }
@@ -368,11 +398,19 @@ async function pushToCanvas(idx) {
     pushStatus[idx] = 'pushing';
     renderPushButton(idx);
 
+    // Use quiz-specific endpoint for quiz mode
+    const pushUrl = gradingMode === 'quiz'
+        ? '/api/canvas/push-quiz-grade'
+        : '/api/canvas/push-grade';
+    const pushBody = gradingMode === 'quiz'
+        ? { session_id: sessionId, idx }
+        : { session_id: sessionId, idx, feedback, score: getCurrentScore(idx) };
+
     try {
-        const resp = await fetch('/api/canvas/push-grade', {
+        const resp = await fetch(pushUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId, idx, feedback, score: getCurrentScore(idx) }),
+            body: JSON.stringify(pushBody),
         });
         const data = await resp.json();
 

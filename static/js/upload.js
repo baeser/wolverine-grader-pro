@@ -256,6 +256,13 @@ function renderEssayFileList() {
     `;
 }
 
+// ─── Calibration toggle ──────────────────────────────────────────────────────
+function toggleCalibration() {
+    const content = document.getElementById('calibrationContent');
+    const enabled = document.getElementById('enableCalibration').checked;
+    content.style.display = enabled ? 'block' : 'none';
+}
+
 // ─── Form submission ──────────────────────────────────────────────────────────
 document.getElementById('gradeForm').addEventListener('submit', async function (e) {
     e.preventDefault();

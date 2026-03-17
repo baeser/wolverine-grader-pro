@@ -94,7 +94,7 @@ echo "━━━ Step 2/7: Building app with PyInstaller ━━━"
 # Clean previous build
 rm -rf build/ dist/
 
-pyinstaller WolverineGraderPro.spec --noconfirm
+python3 -m PyInstaller WolverineGraderPro.spec --noconfirm
 
 if [ ! -d "$APP_PATH" ]; then
     echo "  ❌ Build failed — $APP_PATH not found"

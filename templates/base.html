@@ -153,7 +153,9 @@
         {% elif license_status.status == 'licensed' %}
             {% if license_status.update and license_status.update.download_url %}
             <div class="license-banner update">
-                &#128229; Update available (v{{ license_status.update.version }}) &mdash; Contact ryan@treetown.ai for the latest version.
+                &#128229; Update available (v{{ license_status.update.version }}) &mdash;
+                <a href="{{ license_status.update.download_url }}" target="_blank" style="color:#fff; font-weight:600; text-decoration:underline;">Download the latest version</a>
+                &nbsp;|&nbsp; Questions? Contact ryan@treetown.ai
             </div>
             {% endif %}
         {% endif %}

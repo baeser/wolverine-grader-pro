@@ -10,6 +10,10 @@ let canvasToken      = '';
 let canvasCourseId   = null;
 let canvasAssignmentId = null;
 let canvasPointsPossible = null;
+let canvasType       = 'assignment';  // 'assignment' | 'quiz'
+let canvasQuizId     = null;
+let canvasQuizPointsPossible = null;
+let canvasQuizType   = 'classic';  // 'classic' | 'new'
 
 // ─── Token visibility ────────────────────────────────────────────────────────
 function toggleCanvasToken() {
@@ -51,10 +55,14 @@ function forgetCanvasKey() {
 
 function resetCanvasConnection() {
     canvasConnected = false;
+    canvasType = 'assignment';
+    canvasQuizId = null;
+    canvasQuizType = 'classic';
     document.getElementById('canvas-selectors').style.display = 'none';
     document.getElementById('canvas-connect-error').style.display = 'none';
     document.getElementById('canvas-preview').style.display = 'none';
     document.getElementById('canvas_prefetch_id').value = '';
+    document.getElementById('grading_mode').value = 'essay';
 }
 
 // ─── Connect to Canvas ───────────────────────────────────────────────────────
@@ -127,24 +135,73 @@ function showCanvasConnectError(msg) {
     el.style.display = 'block';
 }
 
-// ─── Load assignments for selected course ────────────────────────────────────
-async function loadCanvasAssignments() {
+// ─── Course change handler ───────────────────────────────────────────────────
+function onCanvasCourseChange() {
     const courseId = document.getElementById('canvas_course').value;
     canvasCourseId = courseId || null;
 
-    const assignGroup = document.getElementById('canvas-assignment-group');
-    const fetchWrap   = document.getElementById('canvas-fetch-wrap');
-    const fetchErr    = document.getElementById('canvas-fetch-error');
-    const preview     = document.getElementById('canvas-preview');
-
-    assignGroup.style.display = 'none';
-    fetchWrap.style.display   = 'none';
-    fetchErr.style.display    = 'none';
-    preview.style.display     = 'none';
+    // Reset sub-selectors
+    document.getElementById('canvas-assignment-group').style.display = 'none';
+    document.getElementById('canvas-fetch-wrap').style.display = 'none';
+    document.getElementById('canvas-quiz-group').style.display = 'none';
+    document.getElementById('canvas-fetch-error').style.display = 'none';
+    document.getElementById('canvas-preview').style.display = 'none';
     document.getElementById('canvas_prefetch_id').value = '';
 
+    if (!courseId) {
+        document.getElementById('canvas-type-toggle-group').style.display = 'none';
+        return;
+    }
+
+    // Show the Assignment/Quiz toggle
+    document.getElementById('canvas-type-toggle-group').style.display = 'block';
+
+    // Load whichever type is currently selected
+    if (canvasType === 'assignment') {
+        loadCanvasAssignments();
+    } else {
+        loadCanvasQuizzes();
+    }
+}
+
+// ─── Assignment / Quiz type toggle ──────────────────────────────────────────
+function setCanvasType(type) {
+    canvasType = type;
+    const assignBtn = document.getElementById('canvas-type-assignment');
+    const quizBtn   = document.getElementById('canvas-type-quiz');
+    assignBtn.classList.toggle('active', type === 'assignment');
+    quizBtn.classList.toggle('active', type === 'quiz');
+
+    // Hide everything
+    document.getElementById('canvas-assignment-group').style.display = 'none';
+    document.getElementById('canvas-fetch-wrap').style.display = 'none';
+    document.getElementById('canvas-quiz-group').style.display = 'none';
+    document.getElementById('canvas-fetch-error').style.display = 'none';
+    document.getElementById('canvas-preview').style.display = 'none';
+    document.getElementById('canvas_prefetch_id').value = '';
+
+    // Set grading mode hidden field
+    document.getElementById('grading_mode').value = type === 'quiz' ? 'quiz' : 'essay';
+
+    // Show hint when Quiz tab is active
+    const hint = document.getElementById('canvas-type-hint');
+    if (hint) hint.style.display = type === 'quiz' ? 'block' : 'none';
+
+    if (!canvasCourseId) return;
+
+    if (type === 'assignment') {
+        loadCanvasAssignments();
+    } else {
+        loadCanvasQuizzes();
+    }
+}
+
+// ─── Load assignments for selected course ────────────────────────────────────
+async function loadCanvasAssignments() {
+    const courseId = canvasCourseId;
     if (!courseId) return;
 
+    const assignGroup = document.getElementById('canvas-assignment-group');
     const assignSelect = document.getElementById('canvas_assignment');
     assignSelect.innerHTML = '<option value="">Loading&hellip;</option>';
     assignSelect.disabled = true;
@@ -327,6 +384,260 @@ function addFetchLogItem(name, status, reason) {
     div.innerHTML = `<span class="cfp-log-icon">${icon}</span><span class="cfp-log-name">${name}</span>${note}`;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
+}
+
+// ─── Canvas Quiz functions ───────────────────────────────────────────────────
+
+async function loadCanvasQuizzes() {
+    const courseId = canvasCourseId;
+    if (!courseId) return;
+
+    const quizGroup = document.getElementById('canvas-quiz-group');
+    const quizSelect = document.getElementById('canvas_quiz');
+    quizSelect.innerHTML = '<option value="">Loading&hellip;</option>';
+    quizSelect.disabled = true;
+    quizGroup.style.display = 'block';
+    document.getElementById('quiz-questions-preview').style.display = 'none';
+    document.getElementById('quiz-answer-key-wrap').style.display = 'none';
+    document.getElementById('canvas-quiz-fetch-wrap').style.display = 'none';
+
+    try {
+        const resp = await fetch(
+            `/api/canvas/quizzes?canvas_url=${encodeURIComponent(canvasUrl)}&canvas_token=${encodeURIComponent(canvasToken)}&course_id=${courseId}`
+        );
+        const data = await resp.json();
+
+        quizSelect.innerHTML = '<option value="">Select a quiz&hellip;</option>';
+        (data.quizzes || []).forEach(q => {
+            const opt = document.createElement('option');
+            opt.value = q.id;
+            opt.dataset.points = q.points_possible || '';
+            opt.dataset.questionCount = q.question_count || 0;
+            opt.dataset.quizType = q.quiz_type || 'classic';
+            const typeTag = q.quiz_type === 'new' ? ' [New Quiz]' : '';
+            if (q.question_count != null && q.points_possible != null) {
+                opt.textContent = `${q.title} (${q.points_possible} pts, ${q.question_count} questions)${typeTag}`;
+            } else if (q.points_possible != null) {
+                opt.textContent = `${q.title} (${q.points_possible} pts)${typeTag}`;
+            } else {
+                opt.textContent = `${q.title}${typeTag}`;
+            }
+            quizSelect.appendChild(opt);
+        });
+        quizSelect.disabled = false;
+
+        if (!data.quizzes || data.quizzes.length === 0) {
+            quizSelect.innerHTML = '<option value="">No quizzes found</option>';
+        }
+    } catch (err) {
+        quizSelect.innerHTML = '<option value="">Error loading quizzes</option>';
+        quizSelect.disabled = false;
+    }
+}
+
+async function onCanvasQuizChange() {
+    const select = document.getElementById('canvas_quiz');
+    const quizId = select.value;
+    canvasQuizId = quizId || null;
+
+    const previewEl = document.getElementById('quiz-questions-preview');
+    const answerKeyWrap = document.getElementById('quiz-answer-key-wrap');
+    const fetchWrap = document.getElementById('canvas-quiz-fetch-wrap');
+    const fetchErr = document.getElementById('canvas-fetch-error');
+    const mainPreview = document.getElementById('canvas-preview');
+
+    previewEl.style.display = 'none';
+    answerKeyWrap.style.display = 'none';
+    fetchWrap.style.display = 'none';
+    fetchErr.style.display = 'none';
+    mainPreview.style.display = 'none';
+    document.getElementById('canvas_prefetch_id').value = '';
+
+    if (!quizId) return;
+
+    const opt = select.options[select.selectedIndex];
+    canvasQuizPointsPossible = opt.dataset.points ? parseFloat(opt.dataset.points) : null;
+    canvasQuizType = opt.dataset.quizType || 'classic';
+
+    // Fetch quiz questions to show preview
+    previewEl.style.display = 'block';
+    previewEl.innerHTML = '<p style="color:var(--gray-600);">Loading questions&hellip;</p>';
+
+    try {
+        const resp = await fetch(
+            `/api/canvas/quiz-questions?canvas_url=${encodeURIComponent(canvasUrl)}&canvas_token=${encodeURIComponent(canvasToken)}&course_id=${canvasCourseId}&quiz_id=${quizId}&quiz_type=${canvasQuizType}`
+        );
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            previewEl.innerHTML = `<p style="color:var(--danger);">${data.error || 'Error loading questions.'}</p>`;
+            return;
+        }
+
+        const gradable = data.gradable || [];
+        const autoCount = data.auto_graded_count || 0;
+
+        if (gradable.length === 0) {
+            previewEl.innerHTML = '<p style="color:var(--gray-600);">This quiz has no essay or short answer questions to grade.</p>';
+            return;
+        }
+
+        // Build preview
+        const totalPts = gradable.reduce((sum, q) => sum + (q.points_possible || 0), 0);
+        const questionLines = gradable.map((q, i) => {
+            const typeLabel = q.question_type === 'essay_question' ? 'Essay' : 'Short Answer';
+            // Strip HTML from question text for preview
+            const tmp = document.createElement('div');
+            tmp.innerHTML = q.question_text || '';
+            const cleanText = (tmp.textContent || '').substring(0, 120);
+            return `<div class="quiz-q-preview-item">
+                <span class="quiz-q-num">Q${i + 1}</span>
+                <span class="quiz-q-type">${typeLabel}</span>
+                <span class="quiz-q-pts">${q.points_possible || 0} pts</span>
+                <span class="quiz-q-text">${cleanText}${cleanText.length >= 120 ? '&hellip;' : ''}</span>
+            </div>`;
+        }).join('');
+
+        previewEl.innerHTML = `
+            <div class="quiz-questions-summary">
+                <strong>${gradable.length} question${gradable.length !== 1 ? 's' : ''} need grading</strong>
+                <span style="color:var(--gray-600);">&bull; ${totalPts} pts &bull; ${autoCount} auto-graded</span>
+            </div>
+            <div class="quiz-q-preview-list">${questionLines}</div>
+        `;
+
+        answerKeyWrap.style.display = 'block';
+        fetchWrap.style.display = 'block';
+    } catch (err) {
+        previewEl.innerHTML = '<p style="color:var(--danger);">Error loading quiz questions.</p>';
+    }
+}
+
+async function fetchCanvasQuizSubmissions() {
+    const fetchErr = document.getElementById('canvas-fetch-error');
+    const preview = document.getElementById('canvas-preview');
+    fetchErr.style.display = 'none';
+    preview.style.display = 'none';
+    document.getElementById('canvas_prefetch_id').value = '';
+
+    // Copy answer key to hidden form field
+    const answerKeyInput = document.getElementById('quiz_answer_key_input');
+    document.getElementById('quiz_answer_key').value = answerKeyInput ? answerKeyInput.value.trim() : '';
+
+    const btn = document.getElementById('fetchQuizSubmissionsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Starting&hellip;';
+
+    let fetchId;
+    try {
+        const resp = await fetch('/api/canvas/start-quiz-fetch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                canvas_url:      canvasUrl,
+                canvas_token:    canvasToken,
+                course_id:       parseInt(canvasCourseId),
+                quiz_id:         parseInt(canvasQuizId),
+                points_possible: canvasQuizPointsPossible,
+                quiz_type:       canvasQuizType,
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            showCanvasFetchError(data.error || 'Failed to start quiz fetch.');
+            btn.disabled = false;
+            btn.innerHTML = '⬇️ Fetch Quiz Submissions';
+            return;
+        }
+        fetchId = data.fetch_id;
+    } catch (err) {
+        showCanvasFetchError('Network error. Please try again.');
+        btn.disabled = false;
+        btn.innerHTML = '⬇️ Fetch Quiz Submissions';
+        return;
+    }
+
+    // SSE stream (same pattern as assignment fetch)
+    preview.style.display = 'block';
+    preview.innerHTML = buildFetchProgressHTML(0, 0);
+    btn.innerHTML = '<span class="spinner"></span> Fetching&hellip;';
+
+    const es = new EventSource(`/api/canvas/fetch-progress/${fetchId}`);
+    let total = 0;
+
+    es.onmessage = function (e) {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'heartbeat') return;
+
+        if (msg.type === 'start') {
+            total = msg.total;
+            preview.innerHTML = buildFetchProgressHTML(0, total);
+
+        } else if (msg.type === 'progress') {
+            total = msg.total;
+            updateFetchBar(msg.current, total);
+            addFetchLogItem(msg.name, msg.status, msg.reason || null);
+
+        } else if (msg.type === 'complete') {
+            es.close();
+            btn.disabled = false;
+            btn.innerHTML = '⬇️ Fetch Quiz Submissions';
+            document.getElementById('canvas_prefetch_id').value = msg.prefetch_id;
+            renderCanvasQuizPreview(msg);
+
+        } else if (msg.type === 'error') {
+            es.close();
+            btn.disabled = false;
+            btn.innerHTML = '⬇️ Fetch Quiz Submissions';
+            preview.style.display = 'none';
+            showCanvasFetchError(msg.message || 'Failed to fetch quiz submissions.');
+        }
+    };
+
+    es.onerror = function () {
+        es.close();
+        btn.disabled = false;
+        btn.innerHTML = '⬇️ Fetch Quiz Submissions';
+        preview.style.display = 'none';
+        showCanvasFetchError('Connection lost while fetching. Please try again.');
+    };
+}
+
+function renderCanvasQuizPreview(data) {
+    const preview = document.getElementById('canvas-preview');
+    const skippedNote = data.skipped > 0
+        ? `<span style="color:var(--gray-600); font-weight:400;">&nbsp;&bull;&nbsp;${data.skipped} skipped</span>`
+        : '';
+    const qCountNote = data.gradable_count
+        ? `<span style="color:var(--gray-600); font-weight:400;">&nbsp;&bull;&nbsp;${data.gradable_count} questions to grade</span>`
+        : '';
+
+    const items = (data.preview || []).map(p => {
+        if (p.status === 'skipped') {
+            return `<div class="canvas-preview-item skipped">
+                        <span>⏭</span>
+                        <span class="cpi-name">${p.name}</span>
+                        <span class="cpi-file">${p.reason || 'Skipped'}</span>
+                    </div>`;
+        }
+        return `<div class="canvas-preview-item">
+                    <span>✓</span>
+                    <span class="cpi-name">${p.name}</span>
+                </div>`;
+    }).join('');
+
+    preview.style.display = 'block';
+    preview.innerHTML = `
+        <div class="canvas-preview-box">
+            <div class="canvas-preview-header">
+                <span>✅ ${data.count} student${data.count !== 1 ? 's' : ''} ready to grade${skippedNote}${qCountNote}</span>
+            </div>
+            <div class="canvas-preview-list">${items}</div>
+        </div>
+        <p class="help-text" style="margin-top:0.4rem;">
+            ✏️ All AI-generated grades will be reviewed before anything is pushed to Canvas.
+        </p>
+    `;
 }
 
 function renderCanvasPreview(data) {

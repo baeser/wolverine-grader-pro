@@ -1098,6 +1098,35 @@ input[type="file"] {
 .cfp-log-name { color: var(--gray-800); }
 .cfp-log-note { color: var(--gray-600); font-style: italic; }
 
+/* ── Quiz question preview ────────────────────────────────────────────────── */
+.quiz-questions-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+.quiz-q-preview-list {
+    max-height: 240px;
+    overflow-y: auto;
+    border: 1px solid var(--gray-200);
+    border-radius: 6px;
+    background: var(--gray-50);
+}
+.quiz-q-preview-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--gray-200);
+    font-size: 0.85rem;
+}
+.quiz-q-preview-item:last-child { border-bottom: none; }
+.quiz-q-num  { font-weight: 700; color: var(--blue); min-width: 2rem; }
+.quiz-q-type { font-size: 0.75rem; color: var(--gray-600); background: var(--gray-200); border-radius: 4px; padding: 0.1rem 0.4rem; white-space: nowrap; }
+.quiz-q-pts  { font-size: 0.75rem; color: var(--gray-600); white-space: nowrap; }
+.quiz-q-text { flex: 1; color: var(--gray-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── Drop zone ────────────────────────────────────────────────────────────── */
 .drop-zone {
     border: 2px dashed var(--gray-300);
@@ -1733,6 +1762,56 @@ input[type="file"] {
 .license-banner.update {
     background: #1e7e34;
     color: var(--white);
+}
+
+/* ── Calibration Section ──────────────────────────────────────────────────── */
+.calibration-exemplar {
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.calibration-exemplar-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.calibration-exemplar-header.good {
+    background: #eafaf1;
+    color: #1e7e34;
+    border-bottom: 1px solid #c3e6cb;
+}
+
+.calibration-exemplar-header.weak {
+    background: #fff5f5;
+    color: var(--red);
+    border-bottom: 1px solid #f5c6cb;
+}
+
+.cal-header-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.cal-header-label {
+    font-size: 0.9rem;
+}
+
+.calibration-exemplar-body {
+    padding: 1rem;
+}
+
+.calibration-exemplar-body .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.calibration-exemplar-body textarea {
+    min-height: 80px;
 }
 
 /* Responsive */

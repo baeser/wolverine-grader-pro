@@ -1,7 +1,9 @@
 import json
 import time
 
-from .prompt_builder import build_system_prompt, build_essay_message, DEFAULT_STRICTNESS
+from .prompt_builder import (build_system_prompt, build_essay_message,
+                             build_quiz_system_prompt, build_quiz_message,
+                             DEFAULT_STRICTNESS)
 
 
 class GradingError(Exception):
@@ -61,9 +63,48 @@ class GraderAI:
             self.client = genai  # store module reference; models are created per-call
 
     def grade_essay(self, rubric: str, essay_text: str, essay_name: str,
-                    strictness: int = DEFAULT_STRICTNESS) -> dict:
-        system_prompt = build_system_prompt(rubric, strictness)
+                    strictness: int = DEFAULT_STRICTNESS,
+                    calibration_examples: list = None) -> dict:
+        system_prompt = build_system_prompt(rubric, strictness,
+                                           calibration_examples=calibration_examples)
         user_message = build_essay_message(essay_text, essay_name)
+
+        last_error = None
+        for attempt in range(3):
+            try:
+                raw = self._call_api(system_prompt, user_message)
+                return self._parse_response(raw)
+            except GradingError:
+                raise
+            except Exception as e:
+                last_error = e
+                err_str = str(e).lower()
+                if 'rate' in err_str or '429' in str(e) or 'quota' in err_str:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                break
+
+        raise GradingError(f"Failed after 3 attempts: {last_error}")
+
+    def grade_quiz_submission(self, questions: list, answers: list,
+                              student_name: str,
+                              strictness: int = DEFAULT_STRICTNESS,
+                              answer_key: str = None,
+                              calibration_examples: list = None) -> dict:
+        """Grade a set of quiz question-answer pairs.
+
+        questions: list of {id, text, points, question_type}
+        answers: list of {question_id, question_text, answer_text, points}
+        """
+        system_prompt = build_quiz_system_prompt(
+            questions, strictness,
+            answer_key=answer_key,
+            calibration_examples=calibration_examples,
+        )
+        user_message = build_quiz_message(student_name, answers)
 
         last_error = None
         for attempt in range(3):
@@ -186,9 +227,25 @@ class GraderAI:
                 'explanation': str(c.get('explanation', '')),
             })
 
-        return {
+        # Parse quiz questions array (if present — quiz grading mode)
+        raw_questions = data.get('questions') or []
+        parsed_questions = []
+        for q in raw_questions:
+            if not isinstance(q, dict):
+                continue
+            parsed_questions.append({
+                'question_id': str(q.get('question_id', '')),
+                'earned':      float(q.get('earned', 0)),
+                'possible':    float(q.get('possible', 0)),
+                'feedback':    str(q.get('feedback', '')),
+            })
+
+        result = {
             'score':      float(data['score']),
             'max_score':  float(data.get('max_score', 100)),
             'summary':    str(data['summary']),
             'categories': categories,
         }
+        if parsed_questions:
+            result['questions'] = parsed_questions
+        return result

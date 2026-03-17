@@ -84,7 +84,7 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'Wolverine Grader Pro',
         'CFBundleDisplayName': 'Wolverine Grader Pro',
-        'CFBundleVersion': '3.1.1',
+        'CFBundleVersion': '3.1.4',
         'CFBundleShortVersionString': '3.1',
         'NSHighResolutionCapable': True,
     },

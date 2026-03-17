@@ -198,6 +198,7 @@ def grade():
         else DEFAULT_MODELS.get(provider, '')
 
     essay_mode = request.form.get('essay_mode', 'zip').strip()
+    grading_mode = request.form.get('grading_mode', 'essay').strip()
 
     # Validate inputs
     if not provider or provider not in ('claude', 'openai', 'gemini'):
@@ -206,6 +207,8 @@ def grade():
         return jsonify({'error': 'Please enter your API key.'}), 400
     if essay_mode not in ('zip', 'files', 'canvas'):
         return jsonify({'error': 'Invalid essay upload mode.'}), 400
+    if grading_mode not in ('essay', 'quiz'):
+        return jsonify({'error': 'Invalid grading mode.'}), 400
 
     # Extract rubric
     if rubric_file and rubric_file.filename:
@@ -217,8 +220,83 @@ def grade():
         except ExtractionError as e:
             return jsonify({'error': f'Could not read rubric: {e}'}), 400
 
-    if not rubric_text:
+    if not rubric_text and grading_mode != 'quiz':
         return jsonify({'error': 'Please provide a rubric (paste text or upload a file).'}), 400
+
+    # ── Quiz mode — use pre-fetched quiz data ─────────────────────────────────
+    if grading_mode == 'quiz':
+        prefetch_id = request.form.get('canvas_prefetch_id', '').strip()
+        _cleanup_canvas_prefetch()
+        prefetch = canvas_prefetch.get(prefetch_id)
+        if not prefetch or prefetch.get('grading_mode') != 'quiz':
+            return jsonify({'error': 'Quiz session expired. Please fetch submissions again.'}), 400
+
+        quiz_questions = prefetch['questions']
+        quiz_submissions = prefetch['submissions']
+        answer_key = request.form.get('quiz_answer_key', '').strip() or None
+
+        if not quiz_submissions:
+            return jsonify({'error': 'No quiz submissions to grade.'}), 400
+
+        canvas_meta = {
+            'canvas_enabled': True,
+            'canvas_url': prefetch['canvas_url'],
+            'canvas_token': prefetch['canvas_token'],
+            'canvas_course_id': prefetch['course_id'],
+            'canvas_quiz_id': prefetch['quiz_id'],
+            'canvas_points_possible': prefetch.get('points_possible'),
+        }
+
+        # License check
+        lm = get_license_manager()
+        if not lm.can_grade():
+            return jsonify({'error': 'License required. Please activate or start a trial.'}), 403
+        if lm.is_trial() and not lm.use_trial_session():
+            return jsonify({'error': 'Trial sessions exhausted. Please purchase a license.'}), 403
+
+        # Create session
+        session_id = str(uuid.uuid4())
+        session['session_id'] = session_id
+        strictness_info = get_strictness_info(strictness)
+        model_label = MODEL_LABELS.get(model, model)
+        sess_data = {
+            'status': 'grading',
+            'grading_mode': 'quiz',
+            'quiz_questions': quiz_questions,
+            'essays': [],  # not used for quiz mode
+            'rubric': rubric_text or '',
+            'answer_key': answer_key,
+            'strictness': strictness,
+            'strictness_label': strictness_info['label'],
+            'strictness_emoji': strictness_info['emoji'],
+            'model': model,
+            'model_label': model_label,
+            'results': [],
+            'progress': queue.Queue(),
+            'total': len(quiz_submissions),
+            'current': 0,
+            'calibration_examples': [],
+        }
+        sess_data.update(canvas_meta)
+        sessions[session_id] = sess_data
+
+        thread = threading.Thread(
+            target=_grade_quiz_submissions,
+            args=(session_id, provider, api_key, quiz_questions,
+                  quiz_submissions, strictness, model, answer_key),
+            daemon=True,
+        )
+        thread.start()
+
+        return jsonify({
+            'session_id': session_id,
+            'total': len(quiz_submissions),
+            'strictness': strictness,
+            'strictness_label': strictness_info['label'],
+            'strictness_emoji': strictness_info['emoji'],
+            'model': model,
+            'model_label': model_label,
+        })
 
     # ── Extract essays — ZIP mode ─────────────────────────────────────────────
     essays = []
@@ -301,6 +379,30 @@ def grade():
         if not essays:
             return jsonify({'error': 'No valid submissions found in Canvas. Nothing to grade.'}), 400
 
+    # ── Extract calibration exemplars (optional) ────────────────────────────
+    calibration_examples = []
+    for tag, label in [('strong', 'Strong Example (A-level work)'),
+                       ('weak', 'Needs Improvement (below expectations)')]:
+        cal_file = request.files.get(f'cal_{tag}_file')
+        cal_score = request.form.get(f'cal_{tag}_score', '').strip()
+        cal_max = request.form.get(f'cal_{tag}_max', '').strip()
+        cal_feedback = request.form.get(f'cal_{tag}_feedback', '').strip()
+
+        if cal_file and cal_file.filename and cal_score and cal_feedback:
+            try:
+                cal_text = extract_text(cal_file.filename, cal_file.read())
+                cal_score_val = float(cal_score)
+                cal_max_val = float(cal_max) if cal_max else 100.0
+                calibration_examples.append({
+                    'label': label,
+                    'text': cal_text,
+                    'score': cal_score_val,
+                    'max_score': cal_max_val,
+                    'feedback': cal_feedback,
+                })
+            except (ExtractionError, ValueError):
+                pass  # skip malformed calibration — non-blocking
+
     # ── License check ────────────────────────────────────────────────────────
     lm = get_license_manager()
     if not lm.can_grade():
@@ -326,13 +428,15 @@ def grade():
         'progress': queue.Queue(),
         'total': len(essays),
         'current': 0,
+        'calibration_examples': calibration_examples or [],
     }
     sess_data.update(canvas_meta)
     sessions[session_id] = sess_data
 
     thread = threading.Thread(
         target=_grade_essays,
-        args=(session_id, provider, api_key, rubric_text, essays, strictness, model),
+        args=(session_id, provider, api_key, rubric_text, essays, strictness, model,
+              calibration_examples or None),
         daemon=True,
     )
     thread.start()
@@ -349,7 +453,8 @@ def grade():
 
 
 def _grade_essays(session_id, provider, api_key, rubric, essays,
-                  strictness=DEFAULT_STRICTNESS, model=None):
+                  strictness=DEFAULT_STRICTNESS, model=None,
+                  calibration_examples=None):
     sess = sessions.get(session_id)
     if not sess:
         return
@@ -372,7 +477,9 @@ def _grade_essays(session_id, provider, api_key, rubric, essays,
             }
         else:
             try:
-                graded = grader.grade_essay(rubric, essay['text'], essay['filename'], strictness)
+                graded = grader.grade_essay(rubric, essay['text'], essay['filename'],
+                                            strictness,
+                                            calibration_examples=calibration_examples)
                 result = {
                     'filename': essay['filename'],
                     'score': graded['score'],
@@ -669,6 +776,367 @@ def _do_canvas_fetch(fetch_id, canvas_url, canvas_token, course_id, assignment_i
     })
 
 
+# ── Canvas Quiz routes ────────────────────────────────────────────────────────
+
+@app.route('/api/canvas/quizzes')
+def canvas_quizzes():
+    canvas_url = request.args.get('canvas_url', '').strip()
+    canvas_token = request.args.get('canvas_token', '').strip()
+    course_id = request.args.get('course_id', '').strip()
+    if not all([canvas_url, canvas_token, course_id]):
+        return jsonify({'error': 'canvas_url, canvas_token, and course_id are required.'}), 400
+    try:
+        client = CanvasClient(canvas_url, canvas_token)
+        quizzes = client.get_quizzes(int(course_id))
+        return jsonify({'quizzes': quizzes})
+    except CanvasError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Unexpected error: {e}'}), 500
+
+
+@app.route('/api/canvas/quiz-questions')
+def canvas_quiz_questions():
+    canvas_url = request.args.get('canvas_url', '').strip()
+    canvas_token = request.args.get('canvas_token', '').strip()
+    course_id = request.args.get('course_id', '').strip()
+    quiz_id = request.args.get('quiz_id', '').strip()
+    quiz_type = request.args.get('quiz_type', 'classic').strip()
+    if not all([canvas_url, canvas_token, course_id, quiz_id]):
+        return jsonify({'error': 'canvas_url, canvas_token, course_id, and quiz_id are required.'}), 400
+    try:
+        client = CanvasClient(canvas_url, canvas_token)
+
+        if quiz_type == 'new':
+            # New Quizzes — we can fetch items but not student answers via API.
+            # Student answers are locked inside the Quiz LTI service.
+            return jsonify({
+                'error': 'New Quizzes store student answers inside Canvas\'s quiz '
+                         'engine, which isn\'t accessible through the API. '
+                         'To grade New Quiz essays, download the Student Analysis '
+                         'report from Canvas (Quiz → three dots → Student Analysis) '
+                         'and use WGP\'s file upload instead.',
+            }), 400
+
+        questions = client.get_quiz_questions(int(course_id), int(quiz_id))
+        # Count gradable question types
+        gradable_types = ('essay_question', 'short_answer_question')
+        gradable = [q for q in questions if q['question_type'] in gradable_types]
+        auto_graded = [q for q in questions if q['question_type'] not in gradable_types]
+        return jsonify({
+            'questions': questions,
+            'gradable': gradable,
+            'auto_graded_count': len(auto_graded),
+            'gradable_count': len(gradable),
+        })
+    except CanvasError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Unexpected error: {e}'}), 500
+
+
+@app.route('/api/canvas/start-quiz-fetch', methods=['POST'])
+def canvas_start_quiz_fetch():
+    data = request.get_json()
+    canvas_url = (data.get('canvas_url') or '').strip()
+    canvas_token = (data.get('canvas_token') or '').strip()
+    course_id = data.get('course_id')
+    quiz_id = data.get('quiz_id')
+    points_possible = data.get('points_possible')
+
+    if not all([canvas_url, canvas_token, course_id, quiz_id]):
+        return jsonify({'error': 'Missing required fields.'}), 400
+
+    fetch_id = str(uuid.uuid4())
+    canvas_fetch_tasks[fetch_id] = {
+        'status': 'running',
+        'queue': queue.Queue(),
+    }
+
+    thread = threading.Thread(
+        target=_do_canvas_quiz_fetch,
+        args=(fetch_id, canvas_url, canvas_token, course_id, quiz_id, points_possible),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({'fetch_id': fetch_id})
+
+
+def _do_canvas_quiz_fetch(fetch_id, canvas_url, canvas_token, course_id, quiz_id, points_possible):
+    """Background thread: fetch quiz questions + student answers from Canvas."""
+    import re as _re
+    task = canvas_fetch_tasks.get(fetch_id)
+    if not task:
+        return
+    q = task['queue']
+
+    try:
+        client = CanvasClient(canvas_url, canvas_token)
+        all_questions = client.get_quiz_questions(int(course_id), int(quiz_id))
+        quiz_subs = client.get_quiz_submissions(int(course_id), int(quiz_id))
+    except CanvasError as e:
+        q.put({'type': 'error', 'message': str(e)})
+        task['status'] = 'error'
+        return
+    except Exception as e:
+        q.put({'type': 'error', 'message': f'Error fetching quiz data: {e}'})
+        task['status'] = 'error'
+        return
+
+    # Filter to gradable question types
+    gradable_types = ('essay_question', 'short_answer_question')
+    gradable_questions = [qn for qn in all_questions if qn['question_type'] in gradable_types]
+
+    if not gradable_questions:
+        q.put({'type': 'error', 'message': 'This quiz has no essay or short answer questions to grade.'})
+        task['status'] = 'error'
+        return
+
+    # Build question lookup: {question_id: question_data}
+    gradable_ids = {qn['id'] for qn in gradable_questions}
+    question_map = {qn['id']: qn for qn in gradable_questions}
+
+    # Process quiz submissions — Canvas may return duplicates for multiple attempts
+    # Keep only the latest attempt per user
+    latest_by_user = {}
+    for sub in quiz_subs:
+        user_id = sub.get('user_id')
+        attempt = sub.get('attempt', 1)
+        if user_id not in latest_by_user or attempt > latest_by_user[user_id].get('attempt', 0):
+            latest_by_user[user_id] = sub
+
+    subs_to_process = list(latest_by_user.values())
+    total = len(subs_to_process)
+    q.put({'type': 'start', 'total': total})
+
+    submissions = []
+    preview = []
+    skipped = 0
+
+    for i, sub in enumerate(subs_to_process):
+        user = sub.get('user') or {}
+        student_name = user.get('name') or user.get('login_id') or f"Student {sub.get('user_id', '?')}"
+        user_id = sub.get('user_id')
+        quiz_sub_id = sub.get('id')
+        attempt = sub.get('attempt', 1)
+
+        if not quiz_sub_id:
+            skipped += 1
+            q.put({'type': 'progress', 'current': i + 1, 'total': total,
+                   'name': student_name, 'status': 'skipped', 'reason': 'No submission ID'})
+            continue
+
+        # Fetch per-question answers for this submission
+        try:
+            sub_questions = client.get_quiz_submission_questions(quiz_sub_id)
+        except CanvasError:
+            skipped += 1
+            q.put({'type': 'progress', 'current': i + 1, 'total': total,
+                   'name': student_name, 'status': 'skipped', 'reason': 'Could not fetch answers'})
+            continue
+
+        # Build answers list for gradable questions only
+        answers = []
+        for sq in sub_questions:
+            qid = sq.get('quiz_question_id') or sq.get('id')
+            if qid not in gradable_ids:
+                continue
+            qinfo = question_map[qid]
+
+            # Extract answer text — Canvas stores essay answers in 'answer' field
+            answer_text = ''
+            raw_answer = sq.get('answer')
+            if isinstance(raw_answer, str):
+                # Strip HTML tags from rich-text answers
+                answer_text = _re.sub(r'<[^>]+>', ' ', raw_answer).strip()
+            elif isinstance(raw_answer, dict):
+                answer_text = raw_answer.get('text', '')
+            elif raw_answer is None:
+                answer_text = ''
+
+            answers.append({
+                'question_id': str(qid),
+                'question_text': _re.sub(r'<[^>]+>', ' ', qinfo.get('question_text', '')).strip(),
+                'answer_text': answer_text,
+                'points': qinfo.get('points_possible', 0),
+            })
+
+        if not answers:
+            skipped += 1
+            preview.append({'name': student_name, 'status': 'skipped', 'reason': 'No gradable answers'})
+            q.put({'type': 'progress', 'current': i + 1, 'total': total,
+                   'name': student_name, 'status': 'skipped', 'reason': 'No gradable answers'})
+            continue
+
+        submissions.append({
+            'filename': student_name,
+            'canvas_user_id': user_id,
+            'quiz_submission_id': quiz_sub_id,
+            'attempt': attempt,
+            'answers': answers,
+        })
+        preview.append({'name': student_name, 'status': 'ready'})
+        q.put({'type': 'progress', 'current': i + 1, 'total': total,
+               'name': student_name, 'status': 'ready'})
+
+    if not submissions:
+        q.put({'type': 'error', 'message': f'No gradable submissions found. {skipped} skipped.'})
+        task['status'] = 'error'
+        return
+
+    # Build question list for the grading prompt
+    quiz_q_list = [
+        {
+            'id': str(qn['id']),
+            'text': _re.sub(r'<[^>]+>', ' ', qn.get('question_text', '')).strip(),
+            'points': qn.get('points_possible', 0),
+            'question_type': qn['question_type'],
+        }
+        for qn in gradable_questions
+    ]
+
+    prefetch_id = str(uuid.uuid4())
+    canvas_prefetch[prefetch_id] = {
+        'grading_mode': 'quiz',
+        'questions': quiz_q_list,
+        'submissions': submissions,
+        'canvas_url': canvas_url,
+        'canvas_token': canvas_token,
+        'course_id': int(course_id),
+        'quiz_id': int(quiz_id),
+        'points_possible': points_possible,
+        'expires': time.time() + 3600,
+    }
+
+    task['status'] = 'complete'
+    q.put({
+        'type': 'complete',
+        'prefetch_id': prefetch_id,
+        'count': len(submissions),
+        'skipped': skipped,
+        'preview': preview,
+        'points_possible': points_possible,
+        'gradable_count': len(gradable_questions),
+    })
+
+
+def _grade_quiz_submissions(session_id, provider, api_key, questions,
+                             submissions, strictness=DEFAULT_STRICTNESS,
+                             model=None, answer_key=None):
+    """Background thread: grade quiz submissions with AI."""
+    sess = sessions.get(session_id)
+    if not sess:
+        return
+
+    try:
+        grader = GraderAI(provider, api_key, model=model)
+    except GradingError as e:
+        sess['progress'].put({'type': 'error', 'message': str(e), 'fatal': True})
+        sess['status'] = 'error'
+        return
+
+    for i, submission in enumerate(submissions):
+        sess['current'] = i + 1
+
+        try:
+            graded = grader.grade_quiz_submission(
+                questions, submission['answers'], submission['filename'],
+                strictness, answer_key=answer_key,
+            )
+            result = {
+                'filename': submission['filename'],
+                'score': graded['score'],
+                'max_score': graded['max_score'],
+                'summary': graded['summary'],
+                'categories': [],
+                'questions': graded.get('questions', []),
+                'error': None,
+            }
+        except (GradingError, Exception) as e:
+            result = {
+                'filename': submission['filename'],
+                'score': None, 'max_score': None,
+                'summary': None, 'error': str(e),
+            }
+
+        # Carry over Canvas metadata
+        if submission.get('canvas_user_id'):
+            result['canvas_user_id'] = submission['canvas_user_id']
+        if submission.get('quiz_submission_id'):
+            result['quiz_submission_id'] = submission['quiz_submission_id']
+            result['attempt'] = submission.get('attempt', 1)
+
+        sess['results'].append(result)
+        sess['progress'].put({
+            'type': 'progress',
+            'current': i + 1,
+            'total': len(submissions),
+            'filename': submission['filename'],
+            'status': 'error' if result['error'] else 'done',
+        })
+
+    sess['progress'].put({'type': 'complete'})
+    sess['status'] = 'complete'
+
+
+@app.route('/api/canvas/push-quiz-grade', methods=['POST'])
+def canvas_push_quiz_grade():
+    """Push per-question grades back to a Canvas Classic Quiz."""
+    data = request.get_json()
+    session_id = (data.get('session_id') or '').strip()
+    idx = data.get('idx')
+
+    sess = _get_session(session_id)
+    if not sess:
+        return jsonify({'error': 'Session not found.'}), 404
+    if not sess.get('canvas_enabled') or sess.get('grading_mode') != 'quiz':
+        return jsonify({'error': 'This session is not a Canvas quiz session.'}), 400
+
+    if idx is None or idx < 0 or idx >= len(sess['results']):
+        return jsonify({'error': 'Invalid result index.'}), 400
+
+    result = sess['results'][idx]
+    if result.get('error'):
+        return jsonify({'error': 'Cannot push a result that has a grading error.'}), 400
+
+    quiz_sub_id = result.get('quiz_submission_id')
+    attempt = result.get('attempt', 1)
+    if not quiz_sub_id:
+        return jsonify({'error': 'No quiz submission ID for this result.'}), 400
+
+    graded_questions = result.get('questions', [])
+    if not graded_questions:
+        return jsonify({'error': 'No per-question grades available.'}), 400
+
+    # Build the question grades payload
+    push_questions = []
+    for gq in graded_questions:
+        push_questions.append({
+            'id': int(gq['question_id']),
+            'score': gq['earned'],
+            'comment': gq.get('feedback', ''),
+        })
+
+    canvas_url = data.get('canvas_url') or sess.get('canvas_url', '')
+    canvas_token = data.get('canvas_token') or sess.get('canvas_token', '')
+
+    if not canvas_url or not canvas_token:
+        return jsonify({'error': 'Canvas credentials required. Please re-enter your Canvas token.'}), 400
+
+    try:
+        client = CanvasClient(canvas_url, canvas_token)
+        client.post_quiz_grades(quiz_sub_id, attempt, push_questions)
+        if 'push_status' not in sess:
+            sess['push_status'] = {}
+        sess['push_status'][str(idx)] = 'pushed'
+        return jsonify({'success': True})
+    except CanvasError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Unexpected error: {e}'}), 500
+
+
 @app.route('/api/canvas/push-grade', methods=['POST'])
 def canvas_push_grade():
     data = request.get_json()
@@ -733,7 +1201,12 @@ def _session_label(sess: dict) -> str:
     total      = sess.get('total', 0)
     model_lbl  = sess.get('model_label', '')
     date_str   = datetime.now().strftime('%b %d, %Y %I:%M %p')
-    prefix     = 'Canvas' if sess.get('canvas_enabled') else f'{total} essays'
+    if sess.get('grading_mode') == 'quiz':
+        prefix = 'Canvas Quiz'
+    elif sess.get('canvas_enabled'):
+        prefix = 'Canvas'
+    else:
+        prefix = f'{total} essays'
     students   = f' — {total} students' if sess.get('canvas_enabled') else ''
     return f"{prefix}{students} · {model_lbl} · {date_str}"
 
@@ -777,6 +1250,7 @@ def api_session_save():
         'session_id':      session_id,
         'saved_at':        datetime.now().isoformat(),
         'label':           _session_label(sess),
+        'grading_mode':    sess.get('grading_mode', 'essay'),
         'model':           sess.get('model', ''),
         'model_label':     sess.get('model_label', ''),
         'strictness':      sess.get('strictness', DEFAULT_STRICTNESS),
@@ -791,6 +1265,9 @@ def api_session_save():
         'essays':          saved_essays,
         'push_status':     push_status,
     }
+    # Persist quiz-specific data
+    if sess.get('grading_mode') == 'quiz':
+        save_data['quiz_questions'] = sess.get('quiz_questions', [])
 
     try:
         session_store.save_session(session_id, save_data)
@@ -820,8 +1297,9 @@ def api_session_load(session_id):
         results.append(mr)
 
     # Reconstruct a complete (read-only) in-memory session
-    sessions[session_id] = {
+    restored = {
         'status':           'complete',
+        'grading_mode':     save_data.get('grading_mode', 'essay'),
         'essays':           save_data.get('essays', []),
         'rubric':           save_data.get('rubric', ''),
         'strictness':       save_data.get('strictness', DEFAULT_STRICTNESS),
@@ -843,6 +1321,9 @@ def api_session_load(session_id):
         # Restore which students have already been pushed to Canvas
         'push_status':      save_data.get('push_status', {}),
     }
+    if save_data.get('grading_mode') == 'quiz':
+        restored['quiz_questions'] = save_data.get('quiz_questions', [])
+    sessions[session_id] = restored
 
     return jsonify({
         'success': True,
@@ -960,6 +1441,8 @@ def api_results():
         'status': sess['status'],
         'total': sess['total'],
         'results': sess['results'],
+        'grading_mode': sess.get('grading_mode', 'essay'),
+        'quiz_questions': sess.get('quiz_questions', []),
         'strictness': sess.get('strictness', DEFAULT_STRICTNESS),
         'strictness_label': sess.get('strictness_label', ''),
         'strictness_emoji': sess.get('strictness_emoji', ''),
@@ -1093,7 +1576,9 @@ def api_regrade():
 
     try:
         grader = GraderAI(provider, api_key, model=model)
-        graded = grader.grade_essay(rubric, essay['text'], essay['filename'], new_strictness)
+        cal_examples = sess.get('calibration_examples') or None
+        graded = grader.grade_essay(rubric, essay['text'], essay['filename'],
+                                    new_strictness, calibration_examples=cal_examples)
         result = {
             'filename': essay['filename'],
             'score': graded['score'],
