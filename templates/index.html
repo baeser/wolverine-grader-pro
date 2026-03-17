@@ -113,6 +113,39 @@
                 <span data-val="10">💀<br>College Prof<br>Who Hates You</span>
             </div>
         </div>
+
+        <!-- Feedback Tone -->
+        <div class="tone-section">
+            <h3 style="margin: 1.5rem 0 0.5rem; font-size: 1rem; color: var(--blue);">Feedback Tone</h3>
+
+            <!-- Compact summary (shown when tone is saved) -->
+            <div id="toneSummary" style="display:none;">
+                <div class="tone-summary-row">
+                    <span class="tone-summary-text">
+                        <span id="toneSummaryEmoji"></span>
+                        <span id="toneSummaryLabel"></span>
+                    </span>
+                    <div class="tone-summary-actions">
+                        <label class="remember-label">
+                            <input type="checkbox" id="useCustomTone" checked onchange="toggleUseCustomTone()">
+                            Use Custom Tone
+                        </label>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="openToneModal()">Edit</button>
+                    </div>
+                </div>
+                <div id="tonePhrasesSummary" class="help-text" style="display:none; margin-top:0.35rem;"></div>
+            </div>
+
+            <!-- Setup prompt (shown when no tone saved) -->
+            <div id="toneSetup">
+                <p class="help-text" style="margin-bottom:0.6rem;">
+                    Customize how the AI writes feedback to your students.
+                </p>
+                <button type="button" class="btn btn-secondary" onclick="openToneModal()">
+                    🎨 Set Up Feedback Tone
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Rubric -->
@@ -177,6 +210,8 @@
         <input type="hidden" id="grading_mode" name="grading_mode" value="essay">
         <input type="hidden" id="canvas_prefetch_id" name="canvas_prefetch_id" value="">
         <input type="hidden" id="quiz_answer_key" name="quiz_answer_key" value="">
+        <input type="hidden" id="tone" name="tone" value="personable">
+        <input type="hidden" id="custom_phrases" name="custom_phrases" value="">
         <div class="tab-group">
             <button type="button" class="tab-btn active" id="essay-tab-zip" onclick="switchEssayTab('zip')">📦 Upload ZIP</button>
             <button type="button" class="tab-btn" id="essay-tab-files" onclick="switchEssayTab('files')">📂 Select Files</button>
@@ -404,6 +439,56 @@
         Uses Batch API &mdash; results in minutes to hours. Available for Claude &amp; OpenAI.
     </p>
 </form>
+
+<!-- Tone Setup Modal -->
+<div class="modal-backdrop" id="toneModal">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h2>🎨 Feedback Tone</h2>
+            <button class="modal-close" onclick="closeToneModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Tone Preset</label>
+                <div class="tone-cards">
+                    <label class="tone-card" data-tone="straight_facts">
+                        <input type="radio" name="tone_preset" value="straight_facts">
+                        <span class="tone-icon">📋</span>
+                        <span class="tone-name">Straight Facts</span>
+                        <span class="tone-desc">Direct, no fluff</span>
+                    </label>
+                    <label class="tone-card active" data-tone="personable">
+                        <input type="radio" name="tone_preset" value="personable" checked>
+                        <span class="tone-icon">😊</span>
+                        <span class="tone-name">Personable</span>
+                        <span class="tone-desc">Warm, encouraging</span>
+                    </label>
+                    <label class="tone-card" data-tone="humorous">
+                        <input type="radio" name="tone_preset" value="humorous">
+                        <span class="tone-icon">😄</span>
+                        <span class="tone-name">Humorous</span>
+                        <span class="tone-desc">Light-hearted</span>
+                    </label>
+                    <label class="tone-card" data-tone="empathetic">
+                        <input type="radio" name="tone_preset" value="empathetic">
+                        <span class="tone-icon">💙</span>
+                        <span class="tone-name">Empathetic</span>
+                        <span class="tone-desc">Supportive, growth-oriented</span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="customPhrasesInput">Custom Phrases / Words <span style="font-weight:400; font-size:0.85rem; color:var(--gray-600);">(Optional)</span></label>
+                <textarea id="customPhrasesInput" rows="3"
+                    placeholder="Enter phrases the AI should weave into feedback...&#10;&#10;Examples: &quot;Go Blue!&quot;, &quot;Keep grinding!&quot;, classroom-specific terms"></textarea>
+                <p class="help-text">These will be naturally woven into feedback when appropriate.</p>
+            </div>
+            <div style="text-align:right; margin-top:1rem;">
+                <button type="button" class="btn btn-primary" onclick="saveToneSettings()">Save Tone Settings</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

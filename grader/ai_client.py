@@ -3,7 +3,7 @@ import time
 
 from .prompt_builder import (build_system_prompt, build_essay_message,
                              build_quiz_system_prompt, build_quiz_message,
-                             DEFAULT_STRICTNESS)
+                             DEFAULT_STRICTNESS, DEFAULT_TONE)
 
 
 class GradingError(Exception):
@@ -82,9 +82,12 @@ class GraderAI:
 
     def grade_essay(self, rubric: str, essay_text: str, essay_name: str,
                     strictness: int = DEFAULT_STRICTNESS,
-                    calibration_examples: list = None) -> dict:
+                    calibration_examples: list = None,
+                    tone: str = DEFAULT_TONE,
+                    custom_phrases: str = None) -> dict:
         system_prompt = build_system_prompt(rubric, strictness,
-                                           calibration_examples=calibration_examples)
+                                           calibration_examples=calibration_examples,
+                                           tone=tone, custom_phrases=custom_phrases)
         user_message = build_essay_message(essay_text, essay_name)
 
         last_error = None
@@ -111,7 +114,9 @@ class GraderAI:
                               student_name: str,
                               strictness: int = DEFAULT_STRICTNESS,
                               answer_key: str = None,
-                              calibration_examples: list = None) -> dict:
+                              calibration_examples: list = None,
+                              tone: str = DEFAULT_TONE,
+                              custom_phrases: str = None) -> dict:
         """Grade a set of quiz question-answer pairs.
 
         questions: list of {id, text, points, question_type}
@@ -121,6 +126,7 @@ class GraderAI:
             questions, strictness,
             answer_key=answer_key,
             calibration_examples=calibration_examples,
+            tone=tone, custom_phrases=custom_phrases,
         )
         user_message = build_quiz_message(student_name, answers)
 

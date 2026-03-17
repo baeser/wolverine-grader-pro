@@ -20,6 +20,82 @@ function updateStrictness(val) {
     });
 }
 
+// ─── Feedback Tone ───────────────────────────────────────────────────────────
+const TONE_DATA = {
+    straight_facts: { label: "Straight Facts",  emoji: "📋" },
+    personable:     { label: "Personable",       emoji: "😊" },
+    humorous:       { label: "Humorous",         emoji: "😄" },
+    empathetic:     { label: "Empathetic",       emoji: "💙" },
+};
+
+const LS_TONE_KEY = 'wgp_tone';
+const LS_PHRASES_KEY = 'wgp_custom_phrases';
+
+function openToneModal() {
+    const savedTone = localStorage.getItem(LS_TONE_KEY) || 'personable';
+    const savedPhrases = localStorage.getItem(LS_PHRASES_KEY) || '';
+
+    document.querySelectorAll('.tone-card').forEach(card => {
+        const val = card.querySelector('input').value;
+        card.classList.toggle('active', val === savedTone);
+        card.querySelector('input').checked = (val === savedTone);
+    });
+    document.getElementById('customPhrasesInput').value = savedPhrases;
+    document.getElementById('toneModal').classList.add('open');
+}
+
+function closeToneModal() {
+    document.getElementById('toneModal').classList.remove('open');
+}
+
+function saveToneSettings() {
+    const selectedTone = document.querySelector('input[name="tone_preset"]:checked')?.value || 'personable';
+    const phrases = document.getElementById('customPhrasesInput').value.trim();
+
+    localStorage.setItem(LS_TONE_KEY, selectedTone);
+    localStorage.setItem(LS_PHRASES_KEY, phrases);
+
+    syncToneToForm(selectedTone, phrases);
+    updateToneSummary(selectedTone, phrases);
+    closeToneModal();
+}
+
+function syncToneToForm(tone, phrases) {
+    document.getElementById('tone').value = tone;
+    document.getElementById('custom_phrases').value = phrases;
+}
+
+function updateToneSummary(tone, phrases) {
+    const info = TONE_DATA[tone];
+    if (!info) return;
+
+    document.getElementById('toneSummaryEmoji').textContent = info.emoji;
+    document.getElementById('toneSummaryLabel').textContent = info.label;
+    document.getElementById('toneSummary').style.display = 'block';
+    document.getElementById('toneSetup').style.display = 'none';
+
+    const phrasesSummary = document.getElementById('tonePhrasesSummary');
+    if (phrases) {
+        phrasesSummary.textContent = 'Custom phrases: ' + phrases;
+        phrasesSummary.style.display = 'block';
+    } else {
+        phrasesSummary.style.display = 'none';
+    }
+}
+
+function toggleUseCustomTone() {
+    const enabled = document.getElementById('useCustomTone').checked;
+    const savedTone = localStorage.getItem(LS_TONE_KEY) || 'personable';
+    const savedPhrases = localStorage.getItem(LS_PHRASES_KEY) || '';
+
+    if (enabled) {
+        syncToneToForm(savedTone, savedPhrases);
+    } else {
+        document.getElementById('tone').value = 'personable';
+        document.getElementById('custom_phrases').value = '';
+    }
+}
+
 // ─── Provider / model switching ───────────────────────────────────────────────
 const ALL_PROVIDERS = ['claude', 'openai', 'gemini'];
 
@@ -442,6 +518,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Load any saved key
     loadSavedKey();
+
+    // Load saved tone settings
+    const savedTone = localStorage.getItem(LS_TONE_KEY);
+    if (savedTone) {
+        const savedPhrases = localStorage.getItem(LS_PHRASES_KEY) || '';
+        syncToneToForm(savedTone, savedPhrases);
+        updateToneSummary(savedTone, savedPhrases);
+    }
+
+    // Tone card click handling in modal
+    document.querySelectorAll('.tone-card').forEach(card => {
+        card.addEventListener('click', function () {
+            document.querySelectorAll('.tone-card').forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+            this.querySelector('input').checked = true;
+        });
+    });
 
     // ── Drop zone setup ───────────────────────────────────────────────────────
     const dropZone       = document.getElementById('dropZone');

@@ -68,6 +68,59 @@ STRICTNESS_LEVELS = {
 DEFAULT_STRICTNESS = 4
 
 
+TONE_PRESETS = {
+    "straight_facts": {
+        "label": "Straight Facts",
+        "emoji": "📋",
+        "instructions": (
+            "Write feedback in a direct, no-nonsense style. State what was done "
+            "well, what was not, and what needs to change. Avoid pleasantries, "
+            "encouragement fillers, or softening language. Be concise and factual."
+        ),
+    },
+    "personable": {
+        "label": "Personable",
+        "emoji": "😊",
+        "instructions": (
+            "Write feedback in a warm, encouraging tone. Start with genuine praise "
+            "for what the student did well before addressing areas for improvement. "
+            "Use 'you/your' language and frame critiques as growth opportunities. "
+            "Be supportive but still honest and specific."
+        ),
+    },
+    "humorous": {
+        "label": "Humorous",
+        "emoji": "😄",
+        "instructions": (
+            "Write feedback with light-hearted humor and personality. Use playful "
+            "analogies, gentle wit, and an upbeat voice while still being specific "
+            "and constructive. Keep it appropriate for a classroom setting — the "
+            "goal is to make feedback feel less intimidating, not to mock."
+        ),
+    },
+    "empathetic": {
+        "label": "Empathetic",
+        "emoji": "💙",
+        "instructions": (
+            "Write feedback with deep empathy and a growth-mindset orientation. "
+            "Acknowledge the effort the student put in. Frame every critique as a "
+            "next step the student can take. Use language like 'I can see you were "
+            "working toward...' and 'A great next step would be...' Be gentle "
+            "but still substantive."
+        ),
+    },
+}
+
+DEFAULT_TONE = "personable"
+
+
+def get_tone_info(tone_key: str) -> dict:
+    """Return the tone dict for a given key, falling back to default."""
+    if tone_key in TONE_PRESETS:
+        return {**TONE_PRESETS[tone_key], "key": tone_key}
+    return {**TONE_PRESETS[DEFAULT_TONE], "key": DEFAULT_TONE}
+
+
 def get_strictness_info(level: int) -> dict:
     """Return the strictness dict for a given level, snapping to nearest valid stop."""
     valid = sorted(STRICTNESS_LEVELS.keys())
@@ -76,8 +129,21 @@ def get_strictness_info(level: int) -> dict:
 
 
 def build_system_prompt(rubric: str, strictness: int = DEFAULT_STRICTNESS,
-                        calibration_examples: list = None) -> str:
+                        calibration_examples: list = None,
+                        tone: str = DEFAULT_TONE,
+                        custom_phrases: str = None) -> str:
     info = get_strictness_info(strictness)
+
+    # Build the tone block
+    tone_info = get_tone_info(tone)
+    tone_block = f"\nFEEDBACK TONE: {tone_info['emoji']} {tone_info['label']}\n{tone_info['instructions']}"
+    if custom_phrases and custom_phrases.strip():
+        tone_block += (
+            f"\n\nCUSTOM PHRASES: The teacher has asked you to naturally weave "
+            f"the following words or phrases into your feedback when appropriate "
+            f"(do not force them — use them where they fit naturally): "
+            f"{custom_phrases.strip()}"
+        )
 
     # Build the calibration block if teacher provided exemplars
     calibration_block = ""
@@ -111,6 +177,7 @@ RUBRIC:
 
 GRADING MODE: {info['emoji']} {info['label']} (Level {info['level']}/10)
 {info['instructions']}
+{tone_block}
 {calibration_block}
 
 INSTRUCTIONS:
@@ -119,7 +186,7 @@ INSTRUCTIONS:
 3. For every rubric criterion, determine: the criterion name, points earned, points possible, and a 1-2 sentence explanation that references SPECIFIC content from the student's essay. Do NOT give generic feedback like "your argument could be stronger." Instead, cite a specific claim, example, or passage the student wrote and explain what worked or what was missing. For example: "While you mention the Battle of Midway, you don't fully explain what made it a turning point" or "Your comparison of photosynthesis to a factory assembly line was a strong analogy that showed real understanding."
 4. Sum the category scores to get the total score. Determine max_score from the rubric.
 5. Write a 3-5 sentence overall feedback paragraph addressed directly to the student (use "you/your"). Start with something specific they did well (reference their actual writing), then explain where points were lost by pointing to specific examples, claims, or sections in their essay that fell short. Every piece of feedback must connect to something the student actually wrote.
-6. Your tone and strictness MUST reflect the grading mode specified above.{' If calibration examples were provided, your scoring and feedback tone MUST be consistent with the teachers demonstrated style.' if calibration_examples else ''}
+6. Your tone and strictness MUST reflect the grading mode and feedback tone specified above.{' If calibration examples were provided, your scoring and feedback tone MUST be consistent with the teachers demonstrated style.' if calibration_examples else ''}
 
 You MUST respond in EXACTLY this JSON format and nothing else:
 {{
@@ -144,13 +211,26 @@ def build_essay_message(essay_text: str, essay_name: str) -> str:
 
 def build_quiz_system_prompt(questions: list, strictness: int = DEFAULT_STRICTNESS,
                              answer_key: str = None,
-                             calibration_examples: list = None) -> str:
+                             calibration_examples: list = None,
+                             tone: str = DEFAULT_TONE,
+                             custom_phrases: str = None) -> str:
     """Build system prompt for grading quiz essay/short-answer questions.
 
     questions: list of {id, text, points, question_type}
     answer_key: optional teacher-provided expected answers or grading criteria
     """
     info = get_strictness_info(strictness)
+
+    # Build the tone block
+    tone_info = get_tone_info(tone)
+    tone_block = f"\nFEEDBACK TONE: {tone_info['emoji']} {tone_info['label']}\n{tone_info['instructions']}"
+    if custom_phrases and custom_phrases.strip():
+        tone_block += (
+            f"\n\nCUSTOM PHRASES: The teacher has asked you to naturally weave "
+            f"the following words or phrases into your feedback when appropriate "
+            f"(do not force them — use them where they fit naturally): "
+            f"{custom_phrases.strip()}"
+        )
 
     # Build the question reference block
     q_lines = []
@@ -208,6 +288,7 @@ QUIZ QUESTIONS:
 
 GRADING MODE: {info['emoji']} {info['label']} (Level {info['level']}/10)
 {info['instructions']}
+{tone_block}
 {calibration_block}
 
 INSTRUCTIONS:
@@ -216,7 +297,7 @@ INSTRUCTIONS:
 3. For each question, determine: points earned (0 to the question's max points) and write 1-2 sentences of specific feedback. Reference what the student actually wrote — do NOT give generic feedback. For example: "You correctly identified photosynthesis as the process but missed the role of chlorophyll" rather than "Your answer could be more complete."
 4. Sum the per-question scores to get the total score.
 5. Write a 2-4 sentence overall summary addressed directly to the student (use "you/your"). Mention what they did well and where they lost points, referencing specific answers.
-6. Your tone and strictness MUST reflect the grading mode specified above.{' If calibration examples were provided, your scoring and feedback tone MUST be consistent with the teachers demonstrated style.' if calibration_examples else ''}
+6. Your tone and strictness MUST reflect the grading mode and feedback tone specified above.{' If calibration examples were provided, your scoring and feedback tone MUST be consistent with the teachers demonstrated style.' if calibration_examples else ''}
 
 You MUST respond in EXACTLY this JSON format and nothing else:
 {{
@@ -247,23 +328,26 @@ def build_quiz_message(student_name: str, answers: list) -> str:
 
 
 def build_review_prompt(rubric: str, all_results: list,
-                        grading_mode: str = 'essay') -> tuple:
+                        grading_mode: str = 'essay',
+                        essays: list = None) -> tuple:
     """Build system + user prompts for the consistency review.
 
     Returns (system_prompt, user_message).
     all_results: list of graded result dicts from the session.
+    essays: optional list of essay dicts with 'text' keys for deeper review.
     """
     system_prompt = """You are an expert academic grading auditor performing a consistency review.
 
-You have been given a rubric and the AI-generated scores and feedback for ALL students in a grading batch.
+You have been given a rubric, the AI-generated scores and feedback for ALL students in a grading batch, and (when available) the original student submissions.
 
-Your job is to review the EXISTING grades for internal consistency. Do NOT re-grade from scratch.
+Your job is to review the EXISTING grades for internal consistency and accuracy. Do NOT re-grade from scratch, but DO read the student work to verify the grades make sense.
 
 Check for:
-1. SCORE CONSISTENCY — Similar quality answers should receive similar scores. Look for students with comparable feedback but significantly different scores.
+1. SCORE CONSISTENCY — Similar quality work should receive similar scores. Compare the actual student submissions, not just the feedback summaries.
 2. FEEDBACK-SCORE ALIGNMENT — The score should match the tone and content of the feedback. Flag cases where glowing feedback accompanies a low score, or harsh feedback accompanies a high score.
 3. OUTLIERS — Scores that are unusually high or low compared to peers with similar-quality work.
 4. SCORING DRIFT — Scores that trend higher or lower as the batch progresses (first students graded differently than last students).
+5. EFFORT-SCORE MISMATCH — Flag cases where a very short submission (low word count) received a high score, or a lengthy, detailed submission received a disproportionately low score. Word count alone does not determine quality, but extreme mismatches warrant review.
 
 For each flagged student, suggest a corrected score and explain your reasoning.
 
@@ -283,14 +367,15 @@ You MUST respond in EXACTLY this JSON format:
 }
 
 Only include students that need attention in the flags array. If all scores look consistent, return an empty flags array. The "flag" field means:
-- "high" — score appears too high relative to feedback quality or peer comparison
-- "low" — score appears too low relative to feedback quality or peer comparison
-- "inconsistent" — score and feedback contradict each other
+- "high" — score appears too high relative to submission quality or peer comparison
+- "low" — score appears too low relative to submission quality or peer comparison
+- "inconsistent" — score and feedback contradict each other, or score doesn't match submission quality
 - "ok" — included for reference but no change needed
 
 Do not include any text outside the JSON object."""
 
-    # Build compact student results summary
+    # Build student results with essay text when available
+    essays = essays or []
     parts = [f"RUBRIC:\n{rubric}\n"]
     parts.append(f"GRADING MODE: {'Quiz' if grading_mode == 'quiz' else 'Essay'}")
     parts.append(f"TOTAL STUDENTS: {len(all_results)}\n")
@@ -304,8 +389,7 @@ Do not include any text outside the JSON object."""
         score = r.get('score', 0)
         max_score = r.get('max_score', 100)
 
-        # Truncate summary for token efficiency
-        summary = (r.get('summary') or '')[:200]
+        summary = (r.get('summary') or '')[:500]
 
         line = f"\n[{i}] {name}: {score}/{max_score}"
 
@@ -323,6 +407,19 @@ Do not include any text outside the JSON object."""
             line += f"\n  Categories: {cat_scores}"
 
         line += f"\n  Feedback: {summary}"
+
+        # Include essay text when available (truncated for token budget)
+        if i < len(essays):
+            essay_text = (essays[i].get('text') or '').strip()
+            if essay_text:
+                word_count = len(essay_text.split())
+                line += f"\n  Word Count: {word_count}"
+                # Cap per-essay text to ~800 words to stay within token limits
+                truncated = essay_text[:3200]
+                if len(essay_text) > 3200:
+                    truncated += '\n  [...truncated...]'
+                line += f"\n  Submission Text:\n{truncated}"
+
         parts.append(line)
 
     user_message = "\n".join(parts)

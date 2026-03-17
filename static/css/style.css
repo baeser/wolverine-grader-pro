@@ -143,6 +143,55 @@ header {
     padding: 1.5rem;
 }
 
+/* ── Tone Cards ─────────────────────────────────────────────────────────────── */
+
+.tone-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.tone-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.85rem 0.75rem;
+    border: 2px solid var(--gray-300);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    text-align: center;
+    user-select: none;
+}
+
+.tone-card:hover { border-color: var(--blue); background: var(--gray-50); }
+.tone-card.active { border-color: var(--blue); background: rgba(0,39,76,0.06); }
+.tone-card input[type="radio"] { display: none; }
+.tone-icon { font-size: 1.4rem; margin-bottom: 0.2rem; }
+.tone-name { font-weight: 700; font-size: 0.9rem; color: var(--gray-800); }
+.tone-desc { font-size: 0.78rem; color: var(--gray-600); margin-top: 0.1rem; }
+
+.tone-summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tone-summary-text {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--blue);
+}
+
+.tone-summary-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
 .btn-show-essay {
     background: linear-gradient(135deg, var(--blue), #1a5276);
     color: var(--white);

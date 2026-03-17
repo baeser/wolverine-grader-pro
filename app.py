@@ -21,6 +21,7 @@ from grader.batch_client import BatchGrader, BatchError
 from grader.canvas_client import CanvasClient, CanvasError
 from grader.extractor import ExtractionError, extract_text
 from grader.prompt_builder import (get_strictness_info, DEFAULT_STRICTNESS,
+                                   DEFAULT_TONE, get_tone_info,
                                    build_rubric_generation_prompt, build_review_prompt,
                                    build_system_prompt, build_essay_message,
                                    build_quiz_system_prompt, build_quiz_message)
@@ -203,6 +204,11 @@ def grade():
     model = requested_model if requested_model in ALLOWED_MODELS.get(provider, {}) \
         else DEFAULT_MODELS.get(provider, '')
 
+    # Feedback tone
+    tone = request.form.get('tone', DEFAULT_TONE).strip() or DEFAULT_TONE
+    custom_phrases = request.form.get('custom_phrases', '').strip() or None
+    tone_info = get_tone_info(tone)
+
     essay_mode = request.form.get('essay_mode', 'zip').strip()
     grading_mode = request.form.get('grading_mode', 'essay').strip()
 
@@ -276,6 +282,10 @@ def grade():
             'strictness': strictness,
             'strictness_label': strictness_info['label'],
             'strictness_emoji': strictness_info['emoji'],
+            'tone': tone,
+            'tone_label': tone_info['label'],
+            'tone_emoji': tone_info['emoji'],
+            'custom_phrases': custom_phrases or '',
             'model': model,
             'model_label': model_label,
             'results': [],
@@ -290,7 +300,8 @@ def grade():
         thread = threading.Thread(
             target=_grade_quiz_submissions,
             args=(session_id, provider, api_key, quiz_questions,
-                  quiz_submissions, strictness, model, answer_key),
+                  quiz_submissions, strictness, model, answer_key,
+                  tone, custom_phrases),
             daemon=True,
         )
         thread.start()
@@ -429,6 +440,10 @@ def grade():
         'strictness': strictness,
         'strictness_label': strictness_info['label'],
         'strictness_emoji': strictness_info['emoji'],
+        'tone': tone,
+        'tone_label': tone_info['label'],
+        'tone_emoji': tone_info['emoji'],
+        'custom_phrases': custom_phrases or '',
         'model': model,
         'model_label': model_label,
         'results': [],
@@ -443,7 +458,7 @@ def grade():
     thread = threading.Thread(
         target=_grade_essays,
         args=(session_id, provider, api_key, rubric_text, essays, strictness, model,
-              calibration_examples or None),
+              calibration_examples or None, tone, custom_phrases),
         daemon=True,
     )
     thread.start()
@@ -461,7 +476,8 @@ def grade():
 
 def _grade_essays(session_id, provider, api_key, rubric, essays,
                   strictness=DEFAULT_STRICTNESS, model=None,
-                  calibration_examples=None):
+                  calibration_examples=None,
+                  tone=DEFAULT_TONE, custom_phrases=None):
     sess = sessions.get(session_id)
     if not sess:
         return
@@ -486,7 +502,8 @@ def _grade_essays(session_id, provider, api_key, rubric, essays,
             try:
                 graded = grader.grade_essay(rubric, essay['text'], essay['filename'],
                                             strictness,
-                                            calibration_examples=calibration_examples)
+                                            calibration_examples=calibration_examples,
+                                            tone=tone, custom_phrases=custom_phrases)
                 result = {
                     'filename': essay['filename'],
                     'score': graded['score'],
@@ -1211,7 +1228,8 @@ def _do_canvas_new_quiz_fetch(fetch_id, canvas_url, canvas_token, course_id, qui
 
 def _grade_quiz_submissions(session_id, provider, api_key, questions,
                              submissions, strictness=DEFAULT_STRICTNESS,
-                             model=None, answer_key=None):
+                             model=None, answer_key=None,
+                             tone=DEFAULT_TONE, custom_phrases=None):
     """Background thread: grade quiz submissions with AI."""
     sess = sessions.get(session_id)
     if not sess:
@@ -1231,6 +1249,7 @@ def _grade_quiz_submissions(session_id, provider, api_key, questions,
             graded = grader.grade_quiz_submission(
                 questions, submission['answers'], submission['filename'],
                 strictness, answer_key=answer_key,
+                tone=tone, custom_phrases=custom_phrases,
             )
             result = {
                 'filename': submission['filename'],
@@ -1764,6 +1783,9 @@ def grade_batch():
     model = request.form.get('model', '').strip()
     strictness = int(request.form.get('strictness', DEFAULT_STRICTNESS))
     grading_mode = request.form.get('grading_mode', 'essay').strip()
+    tone = request.form.get('tone', DEFAULT_TONE).strip() or DEFAULT_TONE
+    custom_phrases = request.form.get('custom_phrases', '').strip() or None
+    tone_info_batch = get_tone_info(tone)
 
     if provider not in ALLOWED_MODELS:
         return jsonify({'error': 'Invalid AI provider.'}), 400
@@ -1803,7 +1825,8 @@ def grade_batch():
             return jsonify({'error': 'No quiz submissions to grade.'}), 400
 
         # Build batch requests
-        system_prompt = build_quiz_system_prompt(quiz_questions, strictness, answer_key=answer_key)
+        system_prompt = build_quiz_system_prompt(quiz_questions, strictness, answer_key=answer_key,
+                                                    tone=tone, custom_phrases=custom_phrases)
         batch_requests = []
         for idx, sub in enumerate(quiz_submissions):
             user_msg = build_quiz_message(sub['filename'], sub['answers'])
@@ -1827,7 +1850,7 @@ def grade_batch():
         rubric_file = request.files.get('rubric_file')
         if rubric_file and rubric_file.filename:
             try:
-                rubric_text = extract_text(rubric_file)
+                rubric_text = extract_text(rubric_file.filename, rubric_file.read())
             except ExtractionError as e:
                 return jsonify({'error': f'Could not read rubric: {e}'}), 400
         if not rubric_text:
@@ -1867,7 +1890,7 @@ def grade_batch():
                         for name in z.namelist():
                             ext = os.path.splitext(name)[1].lower()
                             if ext in SUPPORTED_ESSAY_EXTENSIONS and not name.startswith('__MACOSX'):
-                                text = extract_text(BytesIO(z.read(name)), filename=name)
+                                text = extract_text(name, z.read(name))
                                 essays_data.append({'filename': os.path.basename(name), 'text': text})
                 except Exception as e:
                     return jsonify({'error': f'Error reading ZIP: {e}'}), 400
@@ -1875,7 +1898,7 @@ def grade_batch():
                 files = request.files.getlist('essay_files')
                 for f in files:
                     try:
-                        text = extract_text(f)
+                        text = extract_text(f.filename, f.read())
                         essays_data.append({'filename': f.filename, 'text': text})
                     except ExtractionError as e:
                         essays_data.append({'filename': f.filename, 'text': '', 'error': str(e)})
@@ -1889,7 +1912,8 @@ def grade_batch():
             return jsonify({'error': 'No readable essays found.'}), 400
 
         # Build batch requests
-        system_prompt = build_system_prompt(rubric_text, strictness)
+        system_prompt = build_system_prompt(rubric_text, strictness,
+                                              tone=tone, custom_phrases=custom_phrases)
         batch_requests = []
         for idx, essay in enumerate(valid_essays):
             user_msg = build_essay_message(essay['text'], essay['filename'])
@@ -1922,6 +1946,10 @@ def grade_batch():
         'strictness': strictness,
         'strictness_label': strictness_info['label'],
         'strictness_emoji': strictness_info['emoji'],
+        'tone': tone,
+        'tone_label': tone_info_batch['label'],
+        'tone_emoji': tone_info_batch['emoji'],
+        'custom_phrases': custom_phrases or '',
         'model': model,
         'model_label': model_label,
         'results': [],
@@ -1933,6 +1961,7 @@ def grade_batch():
     }
     if grading_mode == 'quiz':
         sess_data['quiz_questions'] = quiz_questions
+        sess_data['quiz_submissions'] = submissions_data
         sess_data['answer_key'] = answer_key
     sess_data.update(canvas_meta)
     sessions[session_id] = sess_data
@@ -2059,6 +2088,13 @@ def api_batch_poll():
                     result['filename'] = valid_essays[idx].get('filename', f'Essay {idx+1}')
                     if valid_essays[idx].get('canvas_user_id'):
                         result['canvas_user_id'] = valid_essays[idx]['canvas_user_id']
+        elif grading_mode == 'quiz':
+            quiz_subs = sess.get('quiz_submissions', [])
+            for idx, result in enumerate(parsed_results):
+                if result and idx < len(quiz_subs):
+                    result['filename'] = quiz_subs[idx].get('filename', f'Student {idx+1}')
+                    if quiz_subs[idx].get('canvas_user_id'):
+                        result['canvas_user_id'] = quiz_subs[idx]['canvas_user_id']
 
         sess['results'] = [r for r in parsed_results if r is not None]
         sess['status'] = 'complete'
@@ -2098,6 +2134,10 @@ def _save_session_to_disk(session_id: str):
         'strictness': sess.get('strictness', DEFAULT_STRICTNESS),
         'strictness_label': sess.get('strictness_label', ''),
         'strictness_emoji': sess.get('strictness_emoji', ''),
+        'tone': sess.get('tone', DEFAULT_TONE),
+        'tone_label': sess.get('tone_label', ''),
+        'tone_emoji': sess.get('tone_emoji', ''),
+        'custom_phrases': sess.get('custom_phrases', ''),
         'model': sess.get('model', ''),
         'model_label': sess.get('model_label', ''),
         'total': sess.get('total', 0),
@@ -2112,6 +2152,8 @@ def _save_session_to_disk(session_id: str):
         'status': sess.get('status', 'complete'),
         'batch_id': sess.get('batch_id'),
         'batch_provider': sess.get('batch_provider'),
+        # NOTE: canvas_token and canvas_url are intentionally excluded —
+        # they are sensitive credentials that must not be persisted to disk.
     }
     if sess.get('grading_mode') == 'quiz':
         save_data['quiz_questions'] = sess.get('quiz_questions', [])
@@ -2153,7 +2195,9 @@ def api_review_scores():
     review_model = get_review_model(provider, grading_model)
     rubric = sess.get('rubric', '')
 
-    system_prompt, user_message = build_review_prompt(rubric, results, grading_mode)
+    essays = sess.get('essays', [])
+    system_prompt, user_message = build_review_prompt(rubric, results, grading_mode,
+                                                      essays=essays)
 
     try:
         grader = GraderAI(provider, api_key, model=review_model)
