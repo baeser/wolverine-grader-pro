@@ -181,5 +181,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/results.js') }}"></script>
+<script src="{{ url_for('static', filename='js/results.js') }}?v={{ app_version }}"></script>
 {% endblock %}

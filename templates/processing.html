@@ -20,5 +20,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/processing.js') }}"></script>
+<script src="{{ url_for('static', filename='js/processing.js') }}?v={{ app_version }}"></script>
 {% endblock %}

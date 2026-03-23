@@ -492,8 +492,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
-<script src="{{ url_for('static', filename='js/canvas.js') }}"></script>
+<script src="{{ url_for('static', filename='js/upload.js') }}?v={{ app_version }}"></script>
+<script src="{{ url_for('static', filename='js/canvas.js') }}?v={{ app_version }}"></script>
 <script>
 // ── Recent Sessions loader ─────────────────────────────────────────────────
 (async function loadSessions() {

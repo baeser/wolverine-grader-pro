@@ -27,7 +27,7 @@ from grader.prompt_builder import (get_strictness_info, DEFAULT_STRICTNESS,
                                    build_quiz_system_prompt, build_quiz_message)
 from grader import session_store
 from grader import batch_store
-from grader.license_manager import get_license_manager, TRIAL_MAX_SESSIONS
+from grader.license_manager import get_license_manager, TRIAL_MAX_SESSIONS, APP_VERSION
 
 # When running as a PyInstaller bundle, resolve bundled data files correctly
 if getattr(sys, 'frozen', False):
@@ -39,6 +39,13 @@ app = Flask(__name__,
             template_folder=os.path.join(_base, 'templates'),
             static_folder=os.path.join(_base, 'static'))
 app.secret_key = os.urandom(32)
+
+
+@app.context_processor
+def inject_version():
+    """Make APP_VERSION available to all templates for cache-busting."""
+    return {'app_version': APP_VERSION}
+
 
 # In-memory storage keyed by session_id
 sessions = {}

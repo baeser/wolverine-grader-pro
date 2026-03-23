@@ -38,5 +38,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/batch_pending.js') }}"></script>
+<script src="{{ url_for('static', filename='js/batch_pending.js') }}?v={{ app_version }}"></script>
 {% endblock %}
