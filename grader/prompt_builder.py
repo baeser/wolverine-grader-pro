@@ -213,11 +213,13 @@ def build_quiz_system_prompt(questions: list, strictness: int = DEFAULT_STRICTNE
                              answer_key: str = None,
                              calibration_examples: list = None,
                              tone: str = DEFAULT_TONE,
-                             custom_phrases: str = None) -> str:
+                             custom_phrases: str = None,
+                             points_possible: float = None) -> str:
     """Build system prompt for grading quiz essay/short-answer questions.
 
     questions: list of {id, text, points, question_type}
     answer_key: optional teacher-provided expected answers or grading criteria
+    points_possible: total points for the quiz (from Canvas assignment)
     """
     info = get_strictness_info(strictness)
 
@@ -232,11 +234,29 @@ def build_quiz_system_prompt(questions: list, strictness: int = DEFAULT_STRICTNE
             f"{custom_phrases.strip()}"
         )
 
+    # If we know the total points but per-question points are all 0, distribute evenly
+    per_q_points = [q['points'] for q in questions]
+    sum_q_points = sum(per_q_points)
+    if points_possible and points_possible > 0 and sum_q_points == 0:
+        # Distribute total evenly across questions
+        even_pts = round(points_possible / len(questions), 2)
+        questions = [dict(q, points=even_pts) for q in questions]
+    elif points_possible and points_possible > 0 and sum_q_points != points_possible:
+        # Per-question points don't add up to the total — scale them
+        scale = points_possible / sum_q_points if sum_q_points > 0 else 1
+        questions = [dict(q, points=round(q['points'] * scale, 2)) for q in questions]
+
     # Build the question reference block
     q_lines = []
     for i, q in enumerate(questions, 1):
         q_lines.append(f"  Q{i} (ID {q['id']}, {q['points']} pts, {q['question_type']}): {q['text']}")
     questions_block = "\n".join(q_lines)
+
+    # Build total points constraint
+    total_pts = points_possible if points_possible and points_possible > 0 else sum(q['points'] for q in questions)
+    total_points_block = ""
+    if total_pts and total_pts > 0:
+        total_points_block = f"\n\nTOTAL POINTS: {total_pts}\nThe max_score MUST always be exactly {total_pts}. Per-question 'possible' values must sum to {total_pts}."
 
     # Build optional answer key block
     answer_key_block = ""
@@ -280,11 +300,17 @@ Use this answer key as your primary reference for evaluating correctness. Award 
         )
     q_id_rest = ',\n    ...one entry per question...' if len(questions) > 2 else ''
 
+    # Lock max_score in JSON format when we know the total
+    if total_pts and total_pts > 0:
+        max_score_field = f'"max_score": {total_pts},'
+    else:
+        max_score_field = '"max_score": <number>,'
+
     return f"""You are an experienced academic grading assistant. You will grade student answers to quiz questions.
 
 QUIZ QUESTIONS:
 {questions_block}
-{answer_key_block}
+{answer_key_block}{total_points_block}
 
 GRADING MODE: {info['emoji']} {info['label']} (Level {info['level']}/10)
 {info['instructions']}
@@ -295,21 +321,21 @@ INSTRUCTIONS:
 1. Read each question and the student's answer carefully.
 2. Evaluate each answer independently against the question asked, applying the grading mode above.
 3. For each question, determine: points earned (0 to the question's max points) and write 1-2 sentences of specific feedback. Reference what the student actually wrote — do NOT give generic feedback. For example: "You correctly identified photosynthesis as the process but missed the role of chlorophyll" rather than "Your answer could be more complete."
-4. Sum the per-question scores to get the total score.
+4. Sum the per-question scores to get the total score.{f' The total must be out of exactly {total_pts} points.' if total_pts else ''}
 5. Write a 2-4 sentence overall summary addressed directly to the student (use "you/your"). Mention what they did well and where they lost points, referencing specific answers.
 6. Your tone and strictness MUST reflect the grading mode and feedback tone specified above.{' If calibration examples were provided, your scoring and feedback tone MUST be consistent with the teachers demonstrated style.' if calibration_examples else ''}
 
 You MUST respond in EXACTLY this JSON format and nothing else:
 {{
   "score": <number>,
-  "max_score": <number>,
+  {max_score_field}
   "summary": "<overall feedback paragraph>",
   "questions": [
 {chr(10).join(q_id_examples)}{q_id_rest}
   ]
 }}
 
-Each entry in "questions" must have: question_id (string matching the IDs above), earned (number), possible (number), feedback (string).
+Each entry in "questions" must have: question_id (string matching the IDs above), earned (number), possible (number), feedback (string).{f' The "possible" values across all questions MUST sum to exactly {total_pts}.' if total_pts else ''}
 Do not include any text outside the JSON object."""
 
 

@@ -301,7 +301,8 @@ def grade():
             target=_grade_quiz_submissions,
             args=(session_id, provider, api_key, quiz_questions,
                   quiz_submissions, strictness, model, answer_key,
-                  tone, custom_phrases),
+                  tone, custom_phrases,
+                  prefetch.get('points_possible')),
             daemon=True,
         )
         thread.start()
@@ -1229,7 +1230,8 @@ def _do_canvas_new_quiz_fetch(fetch_id, canvas_url, canvas_token, course_id, qui
 def _grade_quiz_submissions(session_id, provider, api_key, questions,
                              submissions, strictness=DEFAULT_STRICTNESS,
                              model=None, answer_key=None,
-                             tone=DEFAULT_TONE, custom_phrases=None):
+                             tone=DEFAULT_TONE, custom_phrases=None,
+                             points_possible=None):
     """Background thread: grade quiz submissions with AI."""
     sess = sessions.get(session_id)
     if not sess:
@@ -1250,11 +1252,17 @@ def _grade_quiz_submissions(session_id, provider, api_key, questions,
                 questions, submission['answers'], submission['filename'],
                 strictness, answer_key=answer_key,
                 tone=tone, custom_phrases=custom_phrases,
+                points_possible=points_possible,
             )
+            # Enforce known points_possible as max_score (AI may still deviate)
+            max_score = graded['max_score']
+            if points_possible and points_possible > 0:
+                max_score = float(points_possible)
+
             result = {
                 'filename': submission['filename'],
-                'score': graded['score'],
-                'max_score': graded['max_score'],
+                'score': min(graded['score'], max_score),
+                'max_score': max_score,
                 'summary': graded['summary'],
                 'categories': [],
                 'questions': graded.get('questions', []),
@@ -1825,8 +1833,10 @@ def grade_batch():
             return jsonify({'error': 'No quiz submissions to grade.'}), 400
 
         # Build batch requests
+        quiz_points_possible = prefetch.get('points_possible')
         system_prompt = build_quiz_system_prompt(quiz_questions, strictness, answer_key=answer_key,
-                                                    tone=tone, custom_phrases=custom_phrases)
+                                                    tone=tone, custom_phrases=custom_phrases,
+                                                    points_possible=quiz_points_possible)
         batch_requests = []
         for idx, sub in enumerate(quiz_submissions):
             user_msg = build_quiz_message(sub['filename'], sub['answers'])
@@ -2080,6 +2090,14 @@ def api_batch_poll():
                     'error': str(e),
                 }
 
+        # Enforce known points_possible as max_score for quiz batches
+        batch_points_possible = sess.get('canvas_points_possible')
+        if grading_mode == 'quiz' and batch_points_possible and batch_points_possible > 0:
+            for r in parsed_results:
+                if r and r.get('score') is not None:
+                    r['max_score'] = float(batch_points_possible)
+                    r['score'] = min(r['score'], r['max_score'])
+
         # Attach filenames and canvas metadata
         if grading_mode == 'essay':
             valid_essays = [e for e in essays if not e.get('error') and e.get('text')]
@@ -2192,7 +2210,14 @@ def api_review_scores():
 
     grading_mode = sess.get('grading_mode', 'essay')
     grading_model = sess.get('model', '')
-    review_model = get_review_model(provider, grading_model)
+
+    # Allow teacher to pick review model; default to same model used for grading
+    requested_model = (data.get('review_model') or '').strip()
+    if requested_model and requested_model in ALLOWED_MODELS.get(provider, set()):
+        review_model = requested_model
+    else:
+        review_model = get_review_model(provider, grading_model)
+
     rubric = sess.get('rubric', '')
 
     essays = sess.get('essays', [])

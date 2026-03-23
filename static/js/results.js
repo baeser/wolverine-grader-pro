@@ -67,6 +67,11 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
         }
 
+        // Initialize review model dropdown
+        gradingModelId = data.model || '';
+        const reviewProvider = (localStorage.getItem('wgp_provider') || '').toLowerCase();
+        initReviewModelSelect(reviewProvider, gradingModelId);
+
         buildDropdown();
         showResult(0);
 
@@ -618,6 +623,88 @@ async function executePushAll() {
 // ─── Export ───────────────────────────────────────────────────────────────────
 // ─── AI Consistency Review ───────────────────────────────────────────────────
 let reviewData = null;
+let gradingModelId = '';   // set during page load from results API
+
+// Model hierarchy & cost tiers — mirrors ai_client.py
+const MODEL_HIERARCHY = {
+    claude: ['claude-haiku-3-5-20241022', 'claude-sonnet-4-20250514', 'claude-opus-4-5'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'o3-mini'],
+    gemini: ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'],
+};
+const MODEL_LABEL_MAP = {
+    'claude-opus-4-5':           'Claude Opus 4',
+    'claude-sonnet-4-20250514':  'Claude Sonnet 4',
+    'claude-haiku-3-5-20241022': 'Claude Haiku 3.5',
+    'gpt-4o':                    'GPT-4o',
+    'gpt-4o-mini':               'GPT-4o mini',
+    'o3-mini':                   'o3-mini',
+    'gemini-2.5-pro':            'Gemini 2.5 Pro',
+    'gemini-2.0-flash':          'Gemini 2.0 Flash',
+    'gemini-1.5-flash':          'Gemini 1.5 Flash',
+};
+// Relative cost multipliers (approximate) — cheapest = 1x
+const MODEL_COST_TIER = {
+    'claude-haiku-3-5-20241022': 1,
+    'claude-sonnet-4-20250514':  4,
+    'claude-opus-4-5':           20,
+    'gpt-4o-mini':               1,
+    'gpt-4o':                    8,
+    'o3-mini':                   4,
+    'gemini-1.5-flash':          1,
+    'gemini-2.0-flash':          1,
+    'gemini-2.5-pro':            8,
+};
+
+function initReviewModelSelect(provider, gradingModel) {
+    const select = document.getElementById('reviewModelSelect');
+    if (!select) return;
+    const hierarchy = MODEL_HIERARCHY[provider] || [];
+    const gradingIdx = hierarchy.indexOf(gradingModel);
+
+    select.innerHTML = '';
+    hierarchy.forEach((modelId, i) => {
+        const opt = document.createElement('option');
+        opt.value = modelId;
+        const label = MODEL_LABEL_MAP[modelId] || modelId;
+        if (modelId === gradingModel) {
+            opt.textContent = `${label} (same model)`;
+            opt.selected = true;
+        } else if (i > gradingIdx && gradingIdx >= 0) {
+            const costX = Math.round(MODEL_COST_TIER[modelId] / Math.max(MODEL_COST_TIER[gradingModel], 1));
+            opt.textContent = `${label}` + (costX > 1 ? ` (~${costX}x cost)` : '');
+        } else {
+            opt.textContent = label;
+        }
+        select.appendChild(opt);
+    });
+
+    select.addEventListener('change', updateReviewCostHint);
+    updateReviewCostHint();
+}
+
+function updateReviewCostHint() {
+    const select = document.getElementById('reviewModelSelect');
+    const hint = document.getElementById('reviewCostHint');
+    if (!select || !hint) return;
+
+    const selectedModel = select.value;
+    const provider = (localStorage.getItem('wgp_provider') || '').toLowerCase();
+    const hierarchy = MODEL_HIERARCHY[provider] || [];
+    const gradingIdx = hierarchy.indexOf(gradingModelId);
+    const selectedIdx = hierarchy.indexOf(selectedModel);
+
+    if (selectedModel === gradingModelId) {
+        hint.textContent = 'Checks scoring consistency using the same model.';
+        hint.style.color = '';
+    } else if (selectedIdx > gradingIdx) {
+        const costX = Math.round(MODEL_COST_TIER[selectedModel] / Math.max(MODEL_COST_TIER[gradingModelId], 1));
+        hint.textContent = `⚠️ Higher-tier model — approximately ${costX}x the cost of the grading model.`;
+        hint.style.color = '#e65100';
+    } else {
+        hint.textContent = 'Lower-tier model — cheaper but may catch fewer issues.';
+        hint.style.color = '';
+    }
+}
 
 async function reviewScores() {
     const provider = localStorage.getItem('wgp_provider') || '';
@@ -627,6 +714,8 @@ async function reviewScores() {
         alert('API key not found. Please go to the home page and enter your key.');
         return;
     }
+
+    const selectedModel = document.getElementById('reviewModelSelect')?.value || '';
 
     const btn = document.getElementById('reviewBtn');
     btn.disabled = true;
@@ -640,6 +729,7 @@ async function reviewScores() {
                 session_id: sessionId,
                 provider: provider,
                 api_key: apiKey,
+                review_model: selectedModel,
             }),
         });
         const data = await resp.json();
@@ -647,7 +737,7 @@ async function reviewScores() {
         if (!resp.ok) {
             alert(data.error || 'Review failed.');
             btn.disabled = false;
-            btn.textContent = '🔍 Review Scores for Consistency';
+            btn.textContent = '🔍 Review Scores';
             return;
         }
 
@@ -659,7 +749,7 @@ async function reviewScores() {
     } catch (err) {
         alert('Network error during review.');
         btn.disabled = false;
-        btn.textContent = '🔍 Review Scores for Consistency';
+        btn.textContent = '🔍 Review Scores';
     }
 }
 

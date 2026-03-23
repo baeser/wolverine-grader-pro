@@ -46,14 +46,15 @@ MODEL_HIERARCHY = {
 
 
 def get_review_model(provider: str, grading_model: str) -> str:
-    """Return one tier higher model for consistency review.
-    If already flagship, return the same model."""
+    """Return the same model used for grading (cost-efficient default)."""
+    return grading_model
+
+
+def get_available_review_models(provider: str) -> list:
+    """Return list of {id, label, tier} dicts for the provider, ordered cheapest→flagship.
+    'tier' is 'same', 'higher', or 'highest' relative to nothing — it's absolute position."""
     hierarchy = MODEL_HIERARCHY.get(provider, [])
-    try:
-        idx = hierarchy.index(grading_model)
-        return hierarchy[min(idx + 1, len(hierarchy) - 1)]
-    except ValueError:
-        return grading_model
+    return [{'id': m, 'label': MODEL_LABELS.get(m, m)} for m in hierarchy]
 
 
 class GraderAI:
@@ -116,17 +117,20 @@ class GraderAI:
                               answer_key: str = None,
                               calibration_examples: list = None,
                               tone: str = DEFAULT_TONE,
-                              custom_phrases: str = None) -> dict:
+                              custom_phrases: str = None,
+                              points_possible: float = None) -> dict:
         """Grade a set of quiz question-answer pairs.
 
         questions: list of {id, text, points, question_type}
         answers: list of {question_id, question_text, answer_text, points}
+        points_possible: total points for the quiz (from Canvas assignment)
         """
         system_prompt = build_quiz_system_prompt(
             questions, strictness,
             answer_key=answer_key,
             calibration_examples=calibration_examples,
             tone=tone, custom_phrases=custom_phrases,
+            points_possible=points_possible,
         )
         user_message = build_quiz_message(student_name, answers)
 
