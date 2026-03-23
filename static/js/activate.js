@@ -1,5 +1,89 @@
 // ─── License Activation Page ──────────────────────────────────────────────────
 
+// ─── Update Checking ─────────────────────────────────────────────────────────
+
+async function checkForUpdates() {
+    const btn = document.getElementById('checkUpdateBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Checking…';
+    }
+
+    try {
+        const resp = await fetch('/api/license/check-update');
+        const data = await resp.json();
+
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '🔄 Check for Updates';
+        }
+
+        if (data.update && data.update.download_url) {
+            showUpdateCard(data.update);
+        } else {
+            // No update available
+            if (btn) {
+                btn.textContent = '✅ Up to date!';
+                setTimeout(() => { btn.textContent = '🔄 Check for Updates'; }, 3000);
+            }
+        }
+    } catch (err) {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '🔄 Check for Updates';
+        }
+        // Silent fail — network may be unavailable
+        console.warn('Update check failed:', err);
+    }
+}
+
+function showUpdateCard(update) {
+    const card = document.getElementById('updateCard');
+    if (!card) return;
+
+    let notesHtml = '';
+    if (update.release_notes) {
+        notesHtml = `<p class="update-notes" style="margin:0.4rem 0 0; font-size:0.85rem; color:var(--gray-600);">${escapeHtml(update.release_notes)}</p>`;
+    }
+
+    card.innerHTML = `
+        <div class="update-banner">
+            <div class="update-icon">📥</div>
+            <div class="update-info">
+                <strong>Update available (v${escapeHtml(update.version)})</strong>
+                ${notesHtml}
+                <a href="${escapeHtml(update.download_url)}" target="_blank" class="btn btn-sm btn-primary" style="margin-top:0.5rem;">
+                    ⬇️ Download Update
+                </a>
+            </div>
+        </div>
+    `;
+    card.style.display = 'block';
+
+    // Also update the button
+    const btn = document.getElementById('checkUpdateBtn');
+    if (btn) {
+        btn.textContent = '📥 Update Available!';
+        btn.style.color = '#e65100';
+    }
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// Auto-check for updates on page load (only for licensed users)
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('checkUpdateBtn')) {
+        // Small delay so the page renders first
+        setTimeout(checkForUpdates, 1500);
+    }
+});
+
+// ─── UI Navigation ───────────────────────────────────────────────────────────
+
 function showClaimForm() {
     document.getElementById('optionsCard').style.display = 'none';
     document.getElementById('claimCard').style.display = 'block';

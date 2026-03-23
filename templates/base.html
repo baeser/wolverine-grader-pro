@@ -152,11 +152,12 @@
         </div>
         {% elif license_status.status == 'licensed' %}
             {% if license_status.update and license_status.update.download_url %}
-            <div class="license-banner update">
+            <div class="license-banner update" id="updateBanner">
                 &#128229; Update available (v{{ license_status.update.version }}) &mdash;
                 <a href="{{ license_status.update.download_url }}" target="_blank" style="color:#fff; font-weight:600; text-decoration:underline;">Download the latest version</a>
-                &nbsp;|&nbsp; Questions? Contact ryan@treetown.ai
             </div>
+            {% else %}
+            <div class="license-banner update" id="updateBanner" style="display:none;"></div>
             {% endif %}
         {% endif %}
     {% endif %}
@@ -172,5 +173,28 @@
         </a>
     </footer>
     {% block scripts %}{% endblock %}
+
+    {% if license_status and license_status.status == 'licensed' %}
+    <script>
+    // Auto-check for updates on page load (licensed users only)
+    (function() {
+        var banner = document.getElementById('updateBanner');
+        if (!banner || banner.style.display !== 'none') return; // already showing or not present
+
+        setTimeout(function() {
+            fetch('/api/license/check-update')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.update && data.update.download_url) {
+                        banner.innerHTML = '&#128229; Update available (v' + data.update.version + ') &mdash; '
+                            + '<a href="' + data.update.download_url + '" target="_blank" style="color:#fff; font-weight:600; text-decoration:underline;">Download the latest version</a>';
+                        banner.style.display = '';
+                    }
+                })
+                .catch(function() {}); // silent fail
+        }, 2000);
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>

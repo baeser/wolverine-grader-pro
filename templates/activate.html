@@ -14,9 +14,13 @@
         <div style="margin-top:1.25rem;">
             <a href="/" class="btn btn-primary">Open Wolverine Grader Pro</a>
         </div>
-        <div style="margin-top:1rem;">
+        <div style="margin-top:1rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-sm btn-secondary" id="checkUpdateBtn" onclick="checkForUpdates()">🔄 Check for Updates</button>
             <button class="btn btn-sm btn-secondary" onclick="deactivateDevice()">Deactivate This Device</button>
         </div>
+        <p class="help-text" style="margin-top:0.4rem; font-size:0.75rem; color:var(--gray-500);">
+            v{{ license_status.app_version or '3.0.0' }}
+        </p>
     </div>
 
     <!-- Trial state -->
@@ -141,7 +145,7 @@
     </a>
 </div>
 
-<!-- Update Banner — only shown when a download URL is actually configured -->
+<!-- Update Banner — server-rendered if already known, or populated dynamically by JS -->
 {% if license_status.update and license_status.update.download_url %}
 <div class="card" id="updateCard">
     <div class="update-banner">
@@ -151,12 +155,14 @@
             {% if license_status.update.release_notes %}
             <p class="update-notes">{{ license_status.update.release_notes }}</p>
             {% endif %}
-            <p style="margin-top:0.25rem; font-size:0.8rem; color:var(--gray-500);">
-                Contact ryan@treetown.ai for the latest version.
-            </p>
+            <a href="{{ license_status.update.download_url }}" target="_blank" class="btn btn-sm btn-primary" style="margin-top:0.5rem;">
+                ⬇️ Download Update
+            </a>
         </div>
     </div>
 </div>
+{% else %}
+<div class="card" id="updateCard" style="display:none;"></div>
 {% endif %}
 
 {% endblock %}
