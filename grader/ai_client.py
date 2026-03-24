@@ -298,9 +298,27 @@ class GraderAI:
                 'feedback':    str(q.get('feedback', '')),
             })
 
+        score = float(data['score'])
+        max_score = float(data.get('max_score', 100))
+
+        # Recompute score from per-item breakdown when available —
+        # LLMs frequently mis-sum their own per-question/category scores
+        if parsed_questions:
+            computed_score = sum(q['earned'] for q in parsed_questions)
+            computed_max = sum(q['possible'] for q in parsed_questions)
+            score = computed_score
+            if computed_max > 0:
+                max_score = computed_max
+        elif categories:
+            computed_score = sum(c['earned'] for c in categories)
+            computed_max = sum(c['possible'] for c in categories)
+            if computed_max > 0:
+                score = computed_score
+                max_score = computed_max
+
         result = {
-            'score':      float(data['score']),
-            'max_score':  float(data.get('max_score', 100)),
+            'score':      score,
+            'max_score':  max_score,
             'summary':    str(data['summary']),
             'categories': categories,
         }

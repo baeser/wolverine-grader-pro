@@ -37,6 +37,12 @@
         <div style="margin-top:1.25rem;">
             <a href="/" class="btn btn-primary">Continue to App</a>
         </div>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-sm btn-secondary" id="checkUpdateBtn" onclick="checkForUpdates()">🔄 Check for Updates</button>
+        </div>
+        <p class="help-text" style="margin-top:0.4rem; font-size:0.75rem; color:var(--gray-500);">
+            v{{ license_status.app_version or '3.0.0' }}
+        </p>
         <div class="license-divider"></div>
         <p class="license-or-text">Have a license key?</p>
         <button class="btn btn-sm btn-secondary" onclick="showActivateForm()">Enter License Key</button>
@@ -49,6 +55,12 @@
         <h2>Trial Ended</h2>
         <p>You've used all {{ license_status.max_sessions }} free grading sessions.</p>
         <p style="margin-top:0.5rem; color: var(--gray-600);">Purchase a license to continue grading.</p>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-sm btn-secondary" id="checkUpdateBtn" onclick="checkForUpdates()">🔄 Check for Updates</button>
+        </div>
+        <p class="help-text" style="margin-top:0.4rem; font-size:0.75rem; color:var(--gray-500);">
+            v{{ license_status.app_version or '3.0.0' }}
+        </p>
     </div>
 
     <!-- Unlicensed -->
@@ -56,6 +68,12 @@
     <div class="license-welcome-box">
         <h2>Welcome to Wolverine Grader Pro</h2>
         <p>AI-powered grading for teachers.</p>
+        <div style="margin-top:0.75rem;">
+            <button class="btn btn-sm btn-secondary" id="checkUpdateBtn" onclick="checkForUpdates()">🔄 Check for Updates</button>
+        </div>
+        <p class="help-text" style="margin-top:0.4rem; font-size:0.75rem; color:var(--gray-500);">
+            v{{ license_status.app_version or '3.0.0' }}
+        </p>
     </div>
     {% endif %}
 </div>

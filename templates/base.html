@@ -46,9 +46,16 @@
                 </button>
                 <p style="font-size:0.85rem; color:var(--gray-600); margin-bottom:1.5rem;">Up to {{ license_status.max_devices }} devices</p>
                 <hr style="border:none; border-top:1px solid var(--gray-200,#e5e7eb); margin-bottom:1.25rem;">
-                <button class="btn btn-sm btn-secondary" onclick="deactivateFromModal()">
-                    Deactivate This Device
-                </button>
+                <div style="display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap;">
+                    <button class="btn btn-sm btn-secondary" id="modalCheckUpdateBtn" onclick="checkForUpdatesModal()">🔄 Check for Updates</button>
+                    <button class="btn btn-sm btn-secondary" onclick="deactivateFromModal()">
+                        Deactivate This Device
+                    </button>
+                </div>
+                <div id="modalUpdateResult" style="display:none; margin-top:1rem;"></div>
+                <p class="help-text" style="margin-top:0.75rem; font-size:0.75rem; color:var(--gray-500);">
+                    v{{ app_version }}
+                </p>
             </div>
         </div>
     </div>
@@ -62,6 +69,36 @@
                 else alert(data.error || 'Could not deactivate. Please try again.');
             })
             .catch(() => alert('Network error. Please try again.'));
+    }
+
+    function checkForUpdatesModal() {
+        var btn = document.getElementById('modalCheckUpdateBtn');
+        var result = document.getElementById('modalUpdateResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Checking…';
+        result.style.display = 'none';
+
+        fetch('/api/license/check-update')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                btn.disabled = false;
+                btn.textContent = '🔄 Check for Updates';
+                if (data.update && data.update.download_url) {
+                    result.innerHTML = '<div style="background:var(--gray-100,#f3f4f6); border-radius:8px; padding:0.75rem; text-align:center;">'
+                        + '<strong>📥 Update available (v' + data.update.version + ')</strong>'
+                        + (data.update.release_notes ? '<p style="font-size:0.85rem; color:var(--gray-600); margin:0.4rem 0 0;">' + data.update.release_notes + '</p>' : '')
+                        + '<a href="' + data.update.download_url + '" target="_blank" class="btn btn-sm btn-primary" style="margin-top:0.5rem;">⬇️ Download Update</a>'
+                        + '</div>';
+                    result.style.display = 'block';
+                } else {
+                    btn.textContent = '✅ Up to date!';
+                    setTimeout(function() { btn.textContent = '🔄 Check for Updates'; }, 3000);
+                }
+            })
+            .catch(function() {
+                btn.disabled = false;
+                btn.textContent = '🔄 Check for Updates';
+            });
     }
     </script>
     {% endif %}
