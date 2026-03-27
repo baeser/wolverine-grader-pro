@@ -155,16 +155,17 @@ class CanvasClient:
         )
 
     def post_grade(self, course_id: int, assignment_id: int,
-                   user_id: int, score, comment: str) -> dict:
-        """Post a numeric grade and text comment back to Canvas."""
+                   user_id: int, score, comment: str = None) -> dict:
+        """Post a numeric grade and optional text comment back to Canvas.
+        If comment is None or empty, only the score is submitted."""
         url = (
             f"{self.base_url}/api/v1/courses/{course_id}"
             f"/assignments/{assignment_id}/submissions/{user_id}"
         )
-        return self._put(url, {
-            'submission': {'posted_grade': str(score)},
-            'comment': {'text_comment': comment},
-        })
+        payload = {'submission': {'posted_grade': str(score)}}
+        if comment:
+            payload['comment'] = {'text_comment': comment}
+        return self._put(url, payload)
 
     # ── Quiz API ───────────────────────────────────────────────────────────
 

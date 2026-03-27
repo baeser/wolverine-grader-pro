@@ -1349,6 +1349,8 @@ input[type="file"] {
 
 .btn-push-canvas:hover    { background: #a93226; }
 .btn-push-canvas:disabled { background: var(--gray-300); color: var(--gray-600); cursor: not-allowed; }
+.btn-push-score-only      { background: #2c3e50; padding: 0.7rem 1rem; font-size: 0.82rem; }
+.btn-push-score-only:hover { background: #1a252f; }
 
 .canvas-push-status {
     display: inline-flex;

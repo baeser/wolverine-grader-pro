@@ -1310,6 +1310,7 @@ def canvas_push_quiz_grade():
     data = request.get_json()
     session_id = (data.get('session_id') or '').strip()
     idx = data.get('idx')
+    score_only = bool(data.get('score_only'))
 
     sess = _get_session(session_id)
     if not sess:
@@ -1349,12 +1350,16 @@ def canvas_push_quiz_grade():
                 return jsonify({'error': 'Missing Canvas IDs for grade push.'}), 400
 
             total_score = sum(gq.get('earned', 0) for gq in graded_questions)
-            feedback_parts = []
-            for gq in graded_questions:
-                fb = gq.get('feedback', '').strip()
-                if fb:
-                    feedback_parts.append(f"Q{gq.get('question_id', '?')}: {gq['earned']}/{gq['possible']} — {fb}")
-            comment = '\n'.join(feedback_parts) if feedback_parts else result.get('summary', '')
+
+            if score_only:
+                comment = None
+            else:
+                feedback_parts = []
+                for gq in graded_questions:
+                    fb = gq.get('feedback', '').strip()
+                    if fb:
+                        feedback_parts.append(f"Q{gq.get('question_id', '?')}: {gq['earned']}/{gq['possible']} — {fb}")
+                comment = '\n'.join(feedback_parts) if feedback_parts else result.get('summary', '')
 
             client.post_grade(int(course_id), int(assignment_id), int(user_id),
                               total_score, comment)
@@ -1367,11 +1372,13 @@ def canvas_push_quiz_grade():
 
             push_questions = []
             for gq in graded_questions:
-                push_questions.append({
+                entry = {
                     'id': int(gq['question_id']),
                     'score': gq['earned'],
-                    'comment': gq.get('feedback', ''),
-                })
+                }
+                if not score_only:
+                    entry['comment'] = gq.get('feedback', '')
+                push_questions.append(entry)
             client.post_quiz_grades(quiz_sub_id, attempt, push_questions)
 
         if 'push_status' not in sess:
@@ -1390,6 +1397,7 @@ def canvas_push_grade():
     session_id = (data.get('session_id') or '').strip()
     idx = data.get('idx')
     feedback = (data.get('feedback') or '').strip()
+    score_only = bool(data.get('score_only'))
 
     sess = _get_session(session_id)
     if not sess:
@@ -1429,7 +1437,7 @@ def canvas_push_grade():
             assignment_id=sess['canvas_assignment_id'],
             user_id=canvas_user_id,
             score=canvas_score,
-            comment=feedback,
+            comment=None if score_only else feedback,
         )
         # Track push status server-side so it persists across saves
         if 'push_status' not in sess:

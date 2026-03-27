@@ -385,6 +385,8 @@ function renderPushButton(idx) {
         </button>`;
     } else if (status === 'pushed') {
         wrap.innerHTML = `<span class="canvas-push-status success">✅ Pushed to Canvas</span>`;
+    } else if (status === 'pushed_score') {
+        wrap.innerHTML = `<span class="canvas-push-status success">✅ Score pushed (no comment)</span>`;
     } else if (status && status.error) {
         wrap.innerHTML = `<span class="canvas-push-status error" title="Click to retry" onclick="pushToCanvas(${idx})">
             ❌ ${status.error} — retry?
@@ -392,11 +394,14 @@ function renderPushButton(idx) {
     } else {
         wrap.innerHTML = `<button class="btn-push-canvas" onclick="pushToCanvas(${idx})">
             🎓 Push to Canvas
+        </button>
+        <button class="btn-push-canvas btn-push-score-only" onclick="pushToCanvas(${idx}, true)">
+            🎯 Push Score Only
         </button>`;
     }
 }
 
-async function pushToCanvas(idx) {
+async function pushToCanvas(idx, scoreOnly = false) {
     saveCurrent();
     const feedback = getCurrentFeedback(idx);
 
@@ -408,8 +413,8 @@ async function pushToCanvas(idx) {
         ? '/api/canvas/push-quiz-grade'
         : '/api/canvas/push-grade';
     const pushBody = gradingMode === 'quiz'
-        ? { session_id: sessionId, idx }
-        : { session_id: sessionId, idx, feedback, score: getCurrentScore(idx) };
+        ? { session_id: sessionId, idx, score_only: scoreOnly }
+        : { session_id: sessionId, idx, feedback, score: getCurrentScore(idx), score_only: scoreOnly };
 
     try {
         const resp = await fetch(pushUrl, {
@@ -422,10 +427,12 @@ async function pushToCanvas(idx) {
         if (!resp.ok) {
             pushStatus[idx] = { error: data.error || 'Push failed' };
         } else {
-            pushStatus[idx] = 'pushed';
+            pushStatus[idx] = scoreOnly ? 'pushed_score' : 'pushed';
             // Show a brief toast
             const toast = document.getElementById('copyToast');
-            toast.textContent = `✅ Grade pushed to Canvas!`;
+            toast.textContent = scoreOnly
+                ? `✅ Score pushed to Canvas (no comment)`
+                : `✅ Grade pushed to Canvas!`;
             toast.classList.add('show');
             setTimeout(() => {
                 toast.classList.remove('show');
