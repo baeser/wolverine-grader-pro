@@ -139,10 +139,15 @@ def build_system_prompt(rubric: str, strictness: int = DEFAULT_STRICTNESS,
     tone_block = f"\nFEEDBACK TONE: {tone_info['emoji']} {tone_info['label']}\n{tone_info['instructions']}"
     if custom_phrases and custom_phrases.strip():
         tone_block += (
-            f"\n\nCUSTOM PHRASES: The teacher has asked you to naturally weave "
-            f"the following words or phrases into your feedback when appropriate "
-            f"(do not force them — use them where they fit naturally): "
-            f"{custom_phrases.strip()}"
+            f"\n\nCUSTOM TEACHER PHRASES: The teacher wants you to OCCASIONALLY "
+            f"incorporate the following words or phrases into feedback — but ONLY "
+            f"when they genuinely fit the context of that specific student's work. "
+            f"Use them SPARINGLY: aim for roughly 1 in 3 students, not every student. "
+            f"It is better to skip a phrase entirely than to shoehorn it in where it "
+            f"feels forced or generic. NEVER use more than one custom phrase per student. "
+            f"When you do use one, blend it seamlessly into a sentence — do not set it "
+            f"apart or call attention to it.\n"
+            f"Phrases: {custom_phrases.strip()}"
         )
 
     # Build the calibration block if teacher provided exemplars
@@ -228,10 +233,15 @@ def build_quiz_system_prompt(questions: list, strictness: int = DEFAULT_STRICTNE
     tone_block = f"\nFEEDBACK TONE: {tone_info['emoji']} {tone_info['label']}\n{tone_info['instructions']}"
     if custom_phrases and custom_phrases.strip():
         tone_block += (
-            f"\n\nCUSTOM PHRASES: The teacher has asked you to naturally weave "
-            f"the following words or phrases into your feedback when appropriate "
-            f"(do not force them — use them where they fit naturally): "
-            f"{custom_phrases.strip()}"
+            f"\n\nCUSTOM TEACHER PHRASES: The teacher wants you to OCCASIONALLY "
+            f"incorporate the following words or phrases into feedback — but ONLY "
+            f"when they genuinely fit the context of that specific student's work. "
+            f"Use them SPARINGLY: aim for roughly 1 in 3 students, not every student. "
+            f"It is better to skip a phrase entirely than to shoehorn it in where it "
+            f"feels forced or generic. NEVER use more than one custom phrase per student. "
+            f"When you do use one, blend it seamlessly into a sentence — do not set it "
+            f"apart or call attention to it.\n"
+            f"Phrases: {custom_phrases.strip()}"
         )
 
     # If we know the total points but per-question points are all 0, distribute evenly
